@@ -296,13 +296,29 @@ function initInteractionHandlers(): void {
   mouseHandler = new MouseInteractionHandler(live2dModel, container)
 
   mouseHandler.onClick((hitArea) => {
+    // 底部 30% 区域点击：弹出对话框并置顶
+    if (hitArea?.name === 'Bottom') {
+      toggleChat(true)
+      // 确保窗口置顶
+      getCurrentWindow().then(win => {
+        win.setAlwaysOnTop(true)
+      })
+      nextTick(() => {
+        messageInput.value?.focus()
+      })
+      return
+    }
+
+    // 其他区域点击：隐藏对话框
+    if (isChatVisible.value) {
+      toggleChat(false)
+      return
+    }
+
+    // 如果对话框未打开，则触发交互动作
     if (stateMachine) {
       stateMachine.handleUserInteraction()
     }
-    toggleChat(true)
-    nextTick(() => {
-      messageInput.value?.focus()
-    })
   })
 
   mouseHandler.onDoubleClick(async (hitArea) => {
@@ -312,9 +328,10 @@ function initInteractionHandlers(): void {
     }
   })
 
-  mouseHandler.onHover((hitArea) => {
-    console.log('[App] Hover on:', hitArea?.name)
-  })
+  // 悬停回调暂时禁用
+  // mouseHandler.onHover((hitArea) => {
+  //   console.log('[App] Hover on:', hitArea?.name)
+  // })
 
   mouseHandler.init()
   mouseHandler.enableTracking(true)
@@ -362,10 +379,6 @@ function onLive2DClick(): void {
 
 function handleClose(): void {
   closeBtn.value?.click()
-}
-
-function handleLive2DContainerClick(): void {
-  toggleChat(true)
 }
 
 async function sendMessage(): Promise<void> {
@@ -438,14 +451,25 @@ function handleKeyPress(e: KeyboardEvent): void {
 
 function handleDocumentClick(e: MouseEvent): void {
   const target = e.target as HTMLElement
-  const isClickInside =
-    target.closest('#chat-panel') || target.closest('#live2d-container')
+  // 检查点击是否在聊天面板或 Live2D 容器内
+  const chatPanelEl = document.getElementById('chat-panel')
+  const live2dContainerEl = document.getElementById('live2d-container')
 
-  if (
-    !isClickInside &&
-    chatPanel.value &&
-    !chatPanel.value.classList.contains('hidden')
-  ) {
+  // 手动检查点击位置是否在这些元素内部
+  const rect = live2dContainerEl?.getBoundingClientRect()
+  let isClickOnLive2D = false
+  if (rect) {
+    isClickOnLive2D = (
+      e.clientX >= rect.left &&
+      e.clientX <= rect.right &&
+      e.clientY >= rect.top &&
+      e.clientY <= rect.bottom
+    )
+  }
+
+  const isClickOnChat = chatPanelEl?.contains(target)
+
+  if (!isClickOnChat && !isClickOnLive2D && isChatVisible.value) {
     toggleChat(false)
   }
 }
@@ -958,7 +982,7 @@ onMounted(async () => {
     <div id="drag-region"></div>
     <button id="close-btn" @click="handleClose">×</button>
 
-    <div id="live2d-container" :class="{ 'has-model': hasModel }" @click="handleLive2DContainerClick">
+    <div id="live2d-container" :class="{ 'has-model': hasModel }">
       <canvas id="live2d-canvas"></canvas>
       <div id="live2d-placeholder">Click to chat</div>
     </div>
