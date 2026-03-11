@@ -10,6 +10,9 @@ use tauri::{
     Manager, State, WindowEvent,
 };
 
+mod powershell;
+use powershell::PowerShellRunner;
+
 fn get_db_path() -> PathBuf {
     let data_dir = dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -256,6 +259,11 @@ pub fn run() {
             get_setting,
         ])
         .setup(|app| {
+            // 启动时运行 openclaw gateway 命令
+            if let Err(e) = PowerShellRunner::run_openclaw_gateway() {
+                log::warn!("Failed to start openclaw gateway: {}", e);
+            }
+
             if let Some(pos) = get_window_position().ok().flatten() {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.set_position(tauri::Position::Physical(

@@ -1,0 +1,424 @@
+<script setup lang="ts">
+	import { ref, reactive, onMounted, watch, nextTick } from "vue"
+	import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
+	import { useSettings, type AppSettings } from "../composables"
+
+	const props = defineProps<{
+		visible: boolean
+	}>()
+
+	const emit = defineEmits<{
+		close: []
+		save: [settings: AppSettings]
+	}>()
+
+	const { settings, saveSettings, updateLlmConfig } = useSettings()
+
+	const localSettings = reactive<AppSettings>({ ...settings.value })
+
+	watch(
+		() => props.visible,
+		(visible) => {
+			if (visible) {
+				Object.assign(localSettings, settings.value)
+			}
+		},
+	)
+
+	const chatProvider = ref<"llm" | "openclaw">(settings.value.chatProvider)
+
+	function updateProviderUI() {
+		const btnOpenclaw = document.getElementById(
+			"btn-provider-openclaw",
+		) as HTMLButtonElement | null
+		const btnLlm = document.getElementById(
+			"btn-provider-llm",
+		) as HTMLButtonElement | null
+		const wsUrlInput = document.getElementById(
+			"setting-ws-url",
+		) as HTMLInputElement | null
+		const wsTokenInput = document.getElementById(
+			"setting-ws-token",
+		) as HTMLInputElement | null
+		const llmProviderSelect = document.getElementById(
+			"setting-llm-provider",
+		) as HTMLSelectElement | null
+		const llmApiKeyInput = document.getElementById(
+			"setting-llm-api-key",
+		) as HTMLInputElement | null
+		const llmApiUrlInput = document.getElementById(
+			"setting-llm-api-url",
+		) as HTMLInputElement | null
+		const llmModelInput = document.getElementById(
+			"setting-llm-model",
+		) as HTMLInputElement | null
+
+		if (chatProvider.value === "openclaw") {
+			btnOpenclaw &&
+				(btnOpenclaw.style.background =
+					"linear-gradient(135deg, #22d3ee, #3b82f6)")
+			btnLlm && (btnLlm.style.background = "rgba(255,255,255,0.1)")
+			wsUrlInput && (wsUrlInput.disabled = false)
+			wsTokenInput && (wsTokenInput.disabled = false)
+			llmProviderSelect && (llmProviderSelect.disabled = true)
+			llmApiKeyInput && (llmApiKeyInput.disabled = true)
+			llmApiUrlInput && (llmApiUrlInput.disabled = true)
+			llmModelInput && (llmModelInput.disabled = true)
+		} else {
+			btnOpenclaw && (btnOpenclaw.style.background = "rgba(255,255,255,0.1)")
+			btnLlm &&
+				(btnLlm.style.background = "linear-gradient(135deg, #22d3ee, #3b82f6)")
+			wsUrlInput && (wsUrlInput.disabled = true)
+			wsTokenInput && (wsTokenInput.disabled = true)
+			llmProviderSelect && (llmProviderSelect.disabled = false)
+			llmApiKeyInput && (llmApiKeyInput.disabled = false)
+			llmApiUrlInput && (llmApiUrlInput.disabled = false)
+			llmModelInput && (llmModelInput.disabled = false)
+		}
+	}
+
+	function setChatProvider(provider: "llm" | "openclaw") {
+		chatProvider.value = provider
+		updateProviderUI()
+	}
+
+	async function handleSave() {
+		const modelPath = (
+			document.getElementById("setting-model-path") as HTMLInputElement
+		)?.value
+		const width = parseInt(
+			(document.getElementById("setting-width") as HTMLInputElement)?.value ||
+				"400",
+		)
+		const height = parseInt(
+			(document.getElementById("setting-height") as HTMLInputElement)?.value ||
+				"500",
+		)
+		const wsUrl = (
+			document.getElementById("setting-ws-url") as HTMLInputElement
+		)?.value
+		const wsToken = (
+			document.getElementById("setting-ws-token") as HTMLInputElement
+		)?.value
+		const llmProvider = (
+			document.getElementById("setting-llm-provider") as HTMLSelectElement
+		)?.value as AppSettings["llmProvider"]
+		const llmApiKey = (
+			document.getElementById("setting-llm-api-key") as HTMLInputElement
+		)?.value
+		const llmApiUrl = (
+			document.getElementById("setting-llm-api-url") as HTMLInputElement
+		)?.value
+		const llmModel = (
+			document.getElementById("setting-llm-model") as HTMLInputElement
+		)?.value
+
+		localSettings.modelPath = modelPath
+		localSettings.windowWidth = width
+		localSettings.windowHeight = height
+		localSettings.wsUrl = wsUrl
+		localSettings.wsToken = wsToken
+		localSettings.chatProvider = chatProvider.value
+		localSettings.llmProvider = llmProvider
+		localSettings.llmApiKey = llmApiKey
+		localSettings.llmApiUrl = llmApiUrl
+		localSettings.llmModel = llmModel
+
+		try {
+			const win = await getCurrentWindow()
+			const position = await win.outerPosition()
+			localSettings.windowX = position.x
+			localSettings.windowY = position.y
+		} catch (e) {
+			console.error("[SettingsModal] Failed to get window position:", e)
+		}
+
+		Object.assign(settings.value, localSettings)
+		await saveSettings()
+		await updateLlmConfig()
+
+		const win = await getCurrentWindow()
+		await win.setSize(
+			new LogicalSize(localSettings.windowWidth, localSettings.windowHeight),
+		)
+
+		emit("save", localSettings)
+		emit("close")
+	}
+
+	function handleCancel() {
+		emit("close")
+	}
+
+	onMounted(() => {
+		nextTick(() => {
+			updateProviderUI()
+		})
+	})
+</script>
+
+<template>
+	<Teleport to="body">
+		<div
+			v-if="visible"
+			id="settings-modal"
+			class="modal-overlay"
+			@click.self="handleCancel"
+		>
+			<div class="modal-content">
+				<h3>设置</h3>
+
+				<div class="form-group">
+					<label>模型路径</label>
+					<input
+						id="setting-model-path"
+						type="text"
+						:value="localSettings.modelPath"
+					/>
+				</div>
+
+				<div class="form-row">
+					<div class="form-group">
+						<label>宽度</label>
+						<input
+							id="setting-width"
+							type="number"
+							:value="localSettings.windowWidth"
+						/>
+					</div>
+					<div class="form-group">
+						<label>高度</label>
+						<input
+							id="setting-height"
+							type="number"
+							:value="localSettings.windowHeight"
+						/>
+					</div>
+				</div>
+
+				<div class="form-group">
+					<label>WebSocket 地址</label>
+					<input
+						id="setting-ws-url"
+						type="text"
+						:value="localSettings.wsUrl"
+					/>
+				</div>
+
+				<div class="form-group">
+					<label>WebSocket Token (可选)</label>
+					<input
+						id="setting-ws-token"
+						type="password"
+						:value="localSettings.wsToken"
+					/>
+				</div>
+
+				<div class="form-group">
+					<label>聊天服务</label>
+					<div class="btn-group">
+						<button
+							id="btn-provider-openclaw"
+							type="button"
+							:class="{ active: chatProvider === 'openclaw' }"
+							@click="setChatProvider('openclaw')"
+						>
+							OpenClaw
+						</button>
+						<button
+							id="btn-provider-llm"
+							type="button"
+							:class="{ active: chatProvider === 'llm' }"
+							@click="setChatProvider('llm')"
+						>
+							LLM
+						</button>
+					</div>
+				</div>
+
+				<hr />
+
+				<h4>大模型聊天设置</h4>
+
+				<div class="form-group">
+					<label>API 提供商</label>
+					<select
+						id="setting-llm-provider"
+						:value="localSettings.llmProvider"
+					>
+						<option value="none">不使用</option>
+						<option value="minimax">MiniMax</option>
+						<option value="openai">OpenAI 兼容</option>
+					</select>
+				</div>
+
+				<div class="form-group">
+					<label>API Key</label>
+					<input
+						id="setting-llm-api-key"
+						type="password"
+						:value="localSettings.llmApiKey"
+					/>
+				</div>
+
+				<div class="form-group">
+					<label>API 地址</label>
+					<input
+						id="setting-llm-api-url"
+						type="text"
+						:value="localSettings.llmApiUrl"
+						placeholder="https://api.minimax.chat/v1/text/chatcompletion_v2"
+					/>
+				</div>
+
+				<div class="form-group">
+					<label>模型名称</label>
+					<input
+						id="setting-llm-model"
+						type="text"
+						:value="localSettings.llmModel"
+						placeholder="abab6.5s-chat"
+					/>
+				</div>
+
+				<div class="form-actions">
+					<button
+						id="setting-cancel"
+						@click="handleCancel"
+					>
+						取消
+					</button>
+					<button
+						id="setting-save"
+						@click="handleSave"
+					>
+						保存
+					</button>
+				</div>
+			</div>
+		</div>
+	</Teleport>
+</template>
+
+<style scoped>
+	.modal-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+	}
+
+	.modal-content {
+		background: rgba(15, 23, 42, 0.98);
+		border-radius: 16px;
+		padding: 24px;
+		width: 360px;
+		max-width: 90vw;
+		max-height: 80vh;
+		overflow-y: auto;
+	}
+
+	h3 {
+		margin: 0 0 16px;
+		color: #e2e8f0;
+		font-size: 16px;
+	}
+
+	h4 {
+		margin: 0 0 12px;
+		color: #e2e8f0;
+		font-size: 14px;
+	}
+
+	hr {
+		border: none;
+		border-top: 1px solid rgba(255, 255, 255, 0.1);
+		margin: 16px 0;
+	}
+
+	.form-group {
+		margin-bottom: 12px;
+	}
+
+	.form-row {
+		display: flex;
+		gap: 8px;
+	}
+
+	.form-row .form-group {
+		flex: 1;
+	}
+
+	label {
+		display: block;
+		color: #94a3b8;
+		font-size: 12px;
+		margin-bottom: 4px;
+	}
+
+	input,
+	select {
+		width: 100%;
+		padding: 8px;
+		border: none;
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.1);
+		color: #e2e8f0;
+		font-size: 13px;
+		box-sizing: border-box;
+	}
+
+	input:focus,
+	select:focus {
+		outline: 2px solid rgba(34, 211, 238, 0.5);
+	}
+
+	.btn-group {
+		display: flex;
+		gap: 8px;
+	}
+
+	.btn-group button {
+		flex: 1;
+		padding: 8px 12px;
+		border: none;
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.1);
+		color: #e2e8f0;
+		cursor: pointer;
+		font-size: 13px;
+		transition: background 0.2s;
+	}
+
+	.btn-group button.active {
+		background: linear-gradient(135deg, #22d3ee, #3b82f6);
+	}
+
+	.form-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-top: 16px;
+	}
+
+	.form-actions button {
+		padding: 8px 16px;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		font-size: 13px;
+	}
+
+	#setting-cancel {
+		background: rgba(255, 255, 255, 0.1);
+		color: #e2e8f0;
+	}
+
+	#setting-save {
+		background: linear-gradient(135deg, #22d3ee, #3b82f6);
+		color: white;
+	}
+</style>
