@@ -150,11 +150,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     return gwClient?.isConnected ?? false
   }
 
+  async function loadHistory(limit: number = 20): Promise<any> {
+    if (gwClient && gwClient.isConnected) {
+      return await gwClient.loadHistory(undefined, limit)
+    }
+    return null
+  }
+
   return {
     wsStatus,
     connectWebSocket,
     disconnectWebSocket,
     sendMessage,
     isConnected,
+    loadHistory,
   }
 }

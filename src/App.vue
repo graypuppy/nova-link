@@ -6,7 +6,7 @@ import { TitleBar, Live2DContainer, ChatPanel, SettingsModal, ContextMenu } from
 
 const { settings, loadSettings, saveSettings, updateLlmConfig } = useSettings()
 const { initLive2D, loadLive2DModel, reloadModel, hasModel, resizeLive2D, handleUserInteraction, handleUserMessage, handleBotThinking, handleBotMessage, handleMessageComplete, onModelClick, getCurrentState, previewState, previewMotion, resetToIdle, destroy: destroyLive2D } = useLive2D()
-const { wsStatus, connectWebSocket, sendMessage: sendWsMessage, isConnected } = useWebSocket({
+const { wsStatus, connectWebSocket, sendMessage: sendWsMessage, isConnected, loadHistory } = useWebSocket({
   onStatusChange: (status) => {
     console.log("[App] WebSocket status changed:", status)
   },
@@ -332,6 +332,34 @@ async function handleAppClose() {
   await destroyLive2D()
   await closeAppWindow()
 }
+
+// 监听聊天面板打开，加载历史记录
+watch(isChatVisible, async (show) => {
+  if (show && isConnected()) {
+    try {
+      const result = await loadHistory(20)
+      if (result && result.messages) {
+        // 清空当前消息并添加历史消息
+        messages.value = []
+        for (const msg of result.messages) {
+          if (msg.role === "user" || msg.role === "assistant") {
+            let content = ""
+            if (Array.isArray(msg.content)) {
+              content = msg.content.map((c: any) => c.text || "").join("")
+            } else if (typeof msg.content === "string") {
+              content = msg.content
+            }
+            if (content) {
+              addMessage(msg.role, content)
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("加载历史记录失败:", e)
+    }
+  }
+})
 
 onMounted(() => {
   init()
