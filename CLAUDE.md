@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Nova Link is a Tauri v2 desktop overlay application featuring a floating glassmorphism UI with Live2D character display. It acts as a WebSocket server that external clients can connect to, with optional LLM integration for chat functionality.
+Nova Link is a Tauri v2 desktop overlay application featuring a floating glassmorphism UI with Live2D character display. It connects to OpenClaw Gateway via WebSocket for chat functionality, with optional LLM integration.
 
 ## Technology Stack
 
-- **Frontend**: Vanilla TypeScript + Vite 6
+- **Frontend**: Vue 3 + TypeScript + Vite 6
 - **Desktop**: Tauri v2 (Rust)
 - **Live2D**: pixi.js + pixi-live2d-display (Cubism 4.x)
 - **Storage**: SQLite (rusqlite) for settings persistence
-- **WebSocket**: tokio-tungstenite for async WebSocket server
+- **WebSocket**: GatewayClient SDK connecting to OpenClaw Gateway
 
 ## Common Commands
 
@@ -24,24 +24,20 @@ npm run tauri dev        # Run full Tauri app in dev mode
 # Build
 npm run build            # TypeScript compile + Vite build
 npm run tauri build      # Build production Tauri app
-
-# Rust backend
-cargo build              # Build Rust dependencies
-cargo build --release   # Optimized release build
 ```
 
 ## Architecture
 
 ```
 ┌─────────────────────────┐
-│   External Clients     │  (connect via ws://localhost:8765)
+│   OpenClaw Gateway     │  (ws://127.0.0.1:18789)
 └──────────┬────────────┘
-           │ WebSocket
+           │ WebSocket (GatewayClient SDK)
            ▼
 ┌─────────────────────────┐
-│   Nova Link (Rust)     │  WebSocket server on port 8765
-│   + WebView (TS)       │  - LLM integration (MiniMax/OpenAI)
-│   + Live2D Display     │  - SQLite settings storage
+│   Nova Link (Tauri)    │
+│   + Vue 3 Frontend     │  - Live2D Display
+│   + WebSocket Client   │  - Chat Panel
 └─────────────────────────┘
 ```
 
@@ -49,26 +45,29 @@ cargo build --release   # Optimized release build
 
 | File | Purpose |
 |------|---------|
-| `src/main.ts` | Frontend entry - UI, Live2D rendering, WebSocket client, Tauri event listeners |
-| `src-tauri/src/lib.rs` | Rust backend - WebSocket server, LLM API calls, SQLite, system tray |
-| `src-tauri/tauri.conf.json` | Window config (frameless, transparent, always-on-top, 400x500px) |
-| `src/models/` | Live2D model files (hiyori_pro_zh) |
+| `src/App.vue` | Main Vue component - initialization, event handling |
+| `src/composables/useWebSocket.ts` | WebSocket connection management with auto-reconnect |
+| `src/composables/useChat.ts` | Chat state management |
+| `src/composables/useLive2D.ts` | Live2D model loading and control |
+| `src/composables/useSettings.ts` | Settings persistence |
+| `src/sdk/client.ts` | GatewayClient SDK - WebSocket protocol handling |
+| `src/components/ChatPanel.vue` | Chat UI with glassmorphism styling |
+| `src/components/ContextMenu.vue` | Right-click context menu |
+| `src-tauri/src/lib.rs` | Rust backend - Gateway startup, settings storage, system tray |
 
-### Communication Flow
+### Chat Message Flow
 
-1. **External Client → Rust**: WebSocket message to `ws://localhost:8765`
-2. **Rust processes message**: If LLM configured, calls API; otherwise echoes message
-3. **Rust → External Client**: WebSocket response broadcast to all connected clients
-4. **Rust → Frontend**: Tauri events (`ws-status`, `nova-link-message`)
+1. **User sends message** → ChatPanel emits send event → App.vue calls `sendWsMessage()`
+2. **Gateway responds** → SDK receives `agent` event with lifecycle (start/end)
+3. **Show "thinking"** → `onMessageStart` callback displays thinking indicator
+4. **Receive response** → `onMessageStop` callback + fetch history or stream content
+5. **Display in chat** → Add bot message to chat panel
 
 ### Frontend ↔ Rust Commands
 
-- `invoke("send_to_nanobot", { message })` - Send message to WebSocket clients
-- `invoke("chat_with_llm", { ... })` - Direct LLM API call
-- `invoke("update_llm_config", { ... })` - Update LLM settings
+- `invoke("run_gateway")` - Start OpenClaw Gateway via PowerShell
 - `invoke("save_setting", { key, value })` - Save to SQLite
 - `invoke("get_setting", { key })` - Load from SQLite
-- `invoke("save_window_position", { ... })` / `get_window_position` - Window state persistence
 
 ## Window Behavior
 
@@ -80,7 +79,13 @@ cargo build --release   # Optimized release build
 ## Settings (Right-click Context Menu)
 
 - Model path (Live2D model .model3.json)
-- Window dimensions
-- WebSocket URL (for external client connection)
-- LLM provider (none/MiniMax/OpenAI compatible)
-- API Key, URL, and model name
+- WebSocket URL (default: ws://127.0.0.1:18789/)
+- Chat provider (openclaw/llm)
+- LLM configuration (when chat provider is llm)
+
+## Important Implementation Details
+
+- Gateway events: `agent` (lifecycle stream), `chat` (message state), `tick` (heartbeat)
+- Auto-reconnect: 5-second interval when disconnected
+- Chat history: Loaded when chat panel is opened (20 messages)
+- Message handling: Filters user messages (role=user), only displays assistant messages
