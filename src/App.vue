@@ -1,29 +1,57 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from "vue"
+import { ref, onMounted, watch, nextTick, computed } from "vue"
 import { listen } from "@tauri-apps/api/event"
 import { useSettings, useLive2D, useWebSocket, useChat, useWindow } from "./composables"
 import { TitleBar, Live2DContainer, ChatPanel, SettingsModal, ContextMenu } from "./components"
 
 const { settings, loadSettings, saveSettings, updateLlmConfig } = useSettings()
-const { initLive2D, loadLive2DModel, reloadModel, hasModel, resizeLive2D, handleUserInteraction, handleUserMessage, handleBotThinking, handleBotMessage, handleMessageComplete, onModelClick, destroy: destroyLive2D } = useLive2D()
+const { initLive2D, loadLive2DModel, reloadModel, hasModel, resizeLive2D, handleUserInteraction, handleUserMessage, handleBotThinking, handleBotMessage, handleMessageComplete, onModelClick, getCurrentState, previewState, previewMotion, resetToIdle, destroy: destroyLive2D } = useLive2D()
 const { wsStatus, connectWebSocket, sendMessage: sendWsMessage, isConnected } = useWebSocket()
 const { messages, inputMessage, isChatVisible, toggleChat, addMessage, updateLastBotMessage, startThinking, stopStreaming } = useChat()
-const { toggleAlwaysOnTop, minimizeWindow, closeWindow: closeAppWindow, restoreWindowBounds, resizeWindow } = useWindow()
+const { toggleAlwaysOnTop, minimizeWindow, closeWindow: closeAppWindow, resizeWindow } = useWindow()
 
 const showSettings = ref(false)
 const showContextMenu = ref(false)
 const contextMenuX = ref(0)
 const contextMenuY = ref(0)
 
-async function init() {
-  await loadSettings()
-  await restoreWindowBounds()
+// 动态背景样式
+const appBackgroundStyle = computed(() => ({
+  background: `rgba(${hexToRgb(settings.value.bgColor)}, ${settings.value.bgOpacity})`,
+}))
 
+function hexToRgb(hex: string): string {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  if (result) {
+    return `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+  }
+  return "30, 41, 59" // 默认值
+}
+
+function applyBackground() {
+  const app = document.getElementById("app")
+  if (app) {
+    app.style.background = `rgba(${hexToRgb(settings.value.bgColor)}, ${settings.value.bgOpacity})`
+  }
+}
+
+async function init() {
+  console.log("[App] init starting...")
+  await loadSettings()
+  console.log("[App] settings loaded:", settings.value)
+  applyBackground()
+
+  // 窗口位置由 Rust 后端设置，前端不再重复设置
+  // await restoreWindowBounds()
+
+  console.log("[App] initializing Live2D...")
   await initLive2D()
+  console.log("[App] loading Live2D model...")
   await loadLive2DModel(settings.value.modelPath)
 
-  connectWebSocket(settings.value.wsUrl, settings.value.wsToken)
+  // WebSocket 连接改为手动触发（右键菜单）
 
+  console.log("[App] setting up listeners...")
   await setupTauriListeners()
   setupEventListeners()
 
@@ -127,20 +155,44 @@ function handleContextMenu(e: MouseEvent) {
 
 function handleDocumentClick(e: MouseEvent) {
   const target = e.target as HTMLElement
-  const isClickInside = target.closest("#chat-panel") || target.closest("#live2d-container")
+
+  // 检查是否点击了 Live2D 容器
+  const live2dContainer = target.closest("#live2d-container")
+  if (live2dContainer) {
+    // 点击在 Live2D 容器内，由 handleLive2DClick 处理
+    return
+  }
+
+  // 检查是否点击了聊天面板
+  const isClickInside = target.closest("#chat-panel")
 
   if (!isClickInside && isChatVisible.value) {
     toggleChat(false)
   }
 }
 
-function handleLive2DClick() {
-  handleUserInteraction()
-  toggleChat(true)
-  nextTick(() => {
-    const inputEl = document.getElementById("message-input") as HTMLInputElement
-    inputEl?.focus()
-  })
+function handleLive2DClick(e: MouseEvent) {
+  const container = document.getElementById("live2d-container")
+  if (!container) return
+
+  const rect = container.getBoundingClientRect()
+  const clickY = e.clientY - rect.top
+  const containerHeight = rect.height
+
+  // 只有点击最下方 30% 区域时才显示输入框
+  if (clickY > containerHeight * 0.7) {
+    handleUserInteraction()
+    toggleChat(true)
+    nextTick(() => {
+      const inputEl = document.getElementById("message-input") as HTMLInputElement
+      inputEl?.focus()
+    })
+  } else {
+    // 点击其他区域隐藏输入框
+    if (isChatVisible.value) {
+      toggleChat(false)
+    }
+  }
 }
 
 function handleInputKeyPress(e: KeyboardEvent) {
@@ -159,9 +211,10 @@ function closeSettings() {
 }
 
 async function handleSettingsSave() {
+  applyBackground()
   await loadLive2DModel(settings.value.modelPath)
   resizeLive2D()
-  connectWebSocket(settings.value.wsUrl, settings.value.wsToken)
+  // WebSocket 连接改为手动触发
 }
 
 function handleReloadModel() {
@@ -181,6 +234,37 @@ function handleMinimize() {
 
 function handleCloseWindow() {
   handleAppClose()
+  showContextMenu.value = false
+}
+
+function handleResetWindowSize() {
+  resizeWindow(400, 500)
+  showContextMenu.value = false
+}
+
+function handlePreviewState(state: string) {
+  previewState(state)
+  showContextMenu.value = false
+}
+
+function handlePreviewMotion(motion: string) {
+  previewMotion(motion)
+  showContextMenu.value = false
+}
+
+function handleResetToIdle() {
+  resetToIdle()
+  showContextMenu.value = false
+}
+
+async function handleRunGateway() {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core")
+    const result = await invoke<string>("run_gateway")
+    console.log(result)
+  } catch (e) {
+    console.error("启动 Gateway 失败:", e)
+  }
   showContextMenu.value = false
 }
 
@@ -223,6 +307,11 @@ onMounted(() => {
       @toggle-always-on-top="handleToggleAlwaysOnTop"
       @minimize="handleMinimize"
       @close-window="handleCloseWindow"
+      @reset-window-size="handleResetWindowSize"
+      @preview-state="handlePreviewState"
+      @preview-motion="handlePreviewMotion"
+      @reset-to-idle="handleResetToIdle"
+      @run-gateway="handleRunGateway"
     />
   </div>
 </template>
@@ -247,7 +336,6 @@ body {
   width: 100%;
   height: 100%;
   position: relative;
-  background: rgba(30, 41, 59, 0.8);
   backdrop-filter: blur(20px);
   border-radius: 16px;
   overflow: hidden;
@@ -260,7 +348,7 @@ body {
   right: 40px;
   height: 32px;
   -webkit-app-region: drag;
-  z-index: 10;
+  z-index: 100;
 }
 
 #close-btn {

@@ -65,7 +65,7 @@ export class MouseInteractionHandler {
     this.eventElement.style.cursor = 'pointer'
     this.eventElement.style.pointerEvents = 'auto'
 
-    this.container.style.pointerEvents = 'none'
+    // this.container.style.pointerEvents = 'none'
   }
 
   onClick(callback: ClickCallback): void {

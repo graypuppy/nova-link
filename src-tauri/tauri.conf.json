@@ -14,8 +14,8 @@
 		"windows": [
 			{
 				"title": "Nova Link",
-				"width": 400,
-				"height": 500,
+				"width": 500,
+				"height": 600,
 				"resizable": false,
 				"fullscreen": false,
 				"decorations": false,
@@ -23,9 +23,7 @@
 				"alwaysOnTop": true,
 				"skipTaskbar": false,
 				"shadow": false,
-				"center": false,
-				"x": 100,
-				"y": 100
+				"center": true
 			}
 		],
 		"security": {

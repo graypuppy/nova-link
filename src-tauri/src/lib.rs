@@ -13,6 +13,15 @@ use tauri::{
 mod powershell;
 use powershell::PowerShellRunner;
 
+/// 手动运行 OpenClaw Gateway
+#[tauri::command]
+fn run_gateway() -> Result<String, String> {
+    match PowerShellRunner::run_openclaw_gateway() {
+        Ok(()) => Ok("Gateway 启动命令已发送".to_string()),
+        Err(e) => Err(format!("启动失败: {}", e)),
+    }
+}
+
 fn get_db_path() -> PathBuf {
     let data_dir = dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -86,7 +95,7 @@ fn get_window_position() -> Result<Option<WindowPosition>, String> {
             height: row.get::<_, i32>(3)? as u32,
         })
     });
-
+    println!("{:?}", result);
     match result {
         Ok(pos) => {
             info!(
@@ -257,25 +266,27 @@ pub fn run() {
             get_window_position,
             save_setting,
             get_setting,
+            run_gateway,
         ])
         .setup(|app| {
-            // 启动时运行 openclaw gateway 命令
-            if let Err(e) = PowerShellRunner::run_openclaw_gateway() {
-                log::warn!("Failed to start openclaw gateway: {}", e);
-            }
+            println!("[DEBUG] Nova Link setup starting...");
 
-            if let Some(pos) = get_window_position().ok().flatten() {
+            // 简单的窗口位置恢复
+            if let Ok(Some(pos)) = get_window_position() {
                 if let Some(window) = app.get_webview_window("main") {
+                    // 先设置位置
                     let _ = window.set_position(tauri::Position::Physical(
                         tauri::PhysicalPosition::new(pos.x, pos.y),
                     ));
+                    // 再设置大小
                     let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
                         pos.width, pos.height,
                     )));
-                    info!("Restored window position");
+                    println!("[DEBUG] Window position restored: {:?}", pos);
                 }
             }
 
+            // 创建系统托盘
             let show_item = MenuItem::with_id(app, "show", "显示", true, None::<&str>).unwrap();
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>).unwrap();
             let menu = Menu::with_items(app, &[&show_item, &quit_item]).unwrap();
@@ -323,9 +334,30 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            println!("[DEBUG] Window event: {:?}", event);
             if let WindowEvent::CloseRequested { api, .. } = event {
+                println!("[DEBUG] Close requested, hiding window");
                 api.prevent_close();
                 let _ = window.hide();
+            }
+            if let WindowEvent::Resized(size) = event {
+                println!("[DEBUG] Window resized: {:?}", size);
+                // 如果大小异常（标题栏大小），尝试恢复
+                if size.width < 100 || size.height < 100 {
+                    println!("[DEBUG] Window size too small, ignoring");
+                    return;
+                }
+            }
+            if let WindowEvent::Moved(pos) = event {
+                println!("[DEBUG] Window moved: {:?}", pos);
+                // 如果移动到隐藏位置，恢复
+                if pos.x < -10000 || pos.y < -10000 {
+                    println!("[DEBUG] Window moved to hidden position, ignoring");
+                    return;
+                }
+            }
+            if let WindowEvent::Focused(focused) = event {
+                println!("[DEBUG] Window focused: {}", focused);
             }
         })
         .run(tauri::generate_context!())

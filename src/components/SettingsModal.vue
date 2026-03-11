@@ -112,6 +112,13 @@
 		const llmModel = (
 			document.getElementById("setting-llm-model") as HTMLInputElement
 		)?.value
+		const bgColor = (
+			document.getElementById("setting-bg-color") as HTMLInputElement
+		)?.value
+		const bgOpacity = parseFloat(
+			(document.getElementById("setting-bg-opacity") as HTMLInputElement)
+				?.value || "0.8",
+		)
 
 		localSettings.modelPath = modelPath
 		localSettings.windowWidth = width
@@ -123,6 +130,8 @@
 		localSettings.llmApiKey = llmApiKey
 		localSettings.llmApiUrl = llmApiUrl
 		localSettings.llmModel = llmModel
+		localSettings.bgColor = bgColor
+		localSettings.bgOpacity = bgOpacity
 
 		try {
 			const win = await getCurrentWindow()
@@ -192,6 +201,28 @@
 							id="setting-height"
 							type="number"
 							:value="localSettings.windowHeight"
+						/>
+					</div>
+				</div>
+
+				<div class="form-row">
+					<div class="form-group">
+						<label>背景颜色</label>
+						<input
+							id="setting-bg-color"
+							type="color"
+							:value="localSettings.bgColor"
+						/>
+					</div>
+					<div class="form-group">
+						<label>背景透明度 ({{ localSettings.bgOpacity }})</label>
+						<input
+							id="setting-bg-opacity"
+							type="range"
+							min="0"
+							max="1"
+							step="0.05"
+							:value="localSettings.bgOpacity"
 						/>
 					</div>
 				</div>
@@ -374,6 +405,17 @@
 	input:focus,
 	select:focus {
 		outline: 2px solid rgba(34, 211, 238, 0.5);
+	}
+
+	input[type="color"] {
+		padding: 2px;
+		height: 36px;
+		cursor: pointer;
+	}
+
+	input[type="range"] {
+		padding: 0;
+		background: transparent;
 	}
 
 	.btn-group {

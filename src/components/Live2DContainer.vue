@@ -12,8 +12,8 @@ const emit = defineEmits<{
 const containerRef = ref<HTMLElement | null>(null)
 const placeholderRef = ref<HTMLElement | null>(null)
 
-function handleClick() {
-  emit("click")
+function handleClick(e: MouseEvent) {
+  emit("click", e)
 }
 
 onMounted(() => {
