@@ -183,7 +183,10 @@ export function useLive2D() {
   }
 
   function resizeLive2D(containerId: string = "live2d-container"): void {
-    if (!live2dApp || !live2dModel) return
+    if (!live2dApp || !live2dModel) {
+      console.log("[useLive2D] resizeLive2D: no app or model")
+      return
+    }
 
     const container = document.getElementById(containerId)
     const canvas = document.getElementById("live2d-canvas") as HTMLCanvasElement
@@ -191,6 +194,7 @@ export function useLive2D() {
 
     const containerWidth = container.clientWidth
     const containerHeight = container.clientHeight
+    console.log(`[useLive2D] resizeLive2D: container ${containerWidth}x${containerHeight}`)
 
     canvas.width = containerWidth
     canvas.height = containerHeight
@@ -203,6 +207,7 @@ export function useLive2D() {
     live2dModel.anchor.set(0.5, 0.5)
     live2dModel.x = containerWidth / 2
     live2dModel.y = containerHeight / 2
+    console.log(`[useLive2D] resizeLive2D: scale=${scale}`)
   }
 
   async function reloadModel(modelPath: string): Promise<void> {

@@ -119,6 +119,9 @@
 			(document.getElementById("setting-bg-opacity") as HTMLInputElement)
 				?.value || "0.8",
 		)
+		const bgBlur = (
+			document.getElementById("setting-bg-blur") as HTMLInputElement
+		)?.checked ?? true
 
 		localSettings.modelPath = modelPath
 		localSettings.windowWidth = width
@@ -132,6 +135,7 @@
 		localSettings.llmModel = llmModel
 		localSettings.bgColor = bgColor
 		localSettings.bgOpacity = bgOpacity
+		localSettings.bgBlur = bgBlur
 
 		try {
 			const win = await getCurrentWindow()
@@ -225,6 +229,17 @@
 							:value="localSettings.bgOpacity"
 						/>
 					</div>
+				</div>
+
+				<div class="form-group">
+					<label class="checkbox-label">
+						<input
+							id="setting-bg-blur"
+							type="checkbox"
+							:checked="localSettings.bgBlur"
+						/>
+						启用毛玻璃效果
+					</label>
 				</div>
 
 				<div class="form-group">
@@ -416,6 +431,21 @@
 	input[type="range"] {
 		padding: 0;
 		background: transparent;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+		color: #e2e8f0;
+		font-size: 13px;
+	}
+
+	.checkbox-label input[type="checkbox"] {
+		width: 16px;
+		height: 16px;
+		cursor: pointer;
 	}
 
 	.btn-group {

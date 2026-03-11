@@ -103,7 +103,6 @@
 		left: 0;
 		right: 0;
 		background: rgba(15, 23, 42, 0.85);
-		backdrop-filter: blur(10px);
 		border-top: 1px solid rgba(255, 255, 255, 0.1);
 		display: flex;
 		flex-direction: column;

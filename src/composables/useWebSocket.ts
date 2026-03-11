@@ -17,15 +17,31 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const wsStatus = ref<WsStatus>("disconnected")
   let gwClient: GatewayClient | null = null
 
+  // 自动重连相关
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let reconnectUrl: string = ""
+  let reconnectToken: string = ""
+  const RECONNECT_INTERVAL = 5000 // 5秒重连一次
+
   function connectWebSocket(url: string, token?: string): void {
     console.log("[useWebSocket] Connecting to Gateway with params:", {
       url,
       token: token ? "***" : "",
     })
 
+    // 保存连接参数用于重连
+    reconnectUrl = url
+    reconnectToken = token || ""
+
     if (gwClient) {
       console.log("[useWebSocket] Disconnecting existing Gateway client")
       gwClient.disconnect()
+    }
+
+    // 清除重连定时器
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
     }
 
     console.log("[useWebSocket] Creating new GatewayClient...")
@@ -67,6 +83,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       },
       onConnected: (hello) => {
         console.log("[useWebSocket] Gateway connected, version:", hello.server.version)
+        // 连接成功后清除重连定时器
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer)
+          reconnectTimer = null
+        }
         options.onConnected?.(hello)
       },
       onError: (error) => {
@@ -74,16 +95,40 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         options.onError?.(error)
       },
       onDisconnected: () => {
-        console.log("[useWebSocket] Gateway disconnected")
+        console.log("[useWebSocket] Gateway disconnected, scheduling reconnect...")
+        scheduleReconnect()
       },
     })
 
     gwClient.connect().catch((err) => {
       console.error("Failed to connect to Gateway:", err)
+      scheduleReconnect()
     })
   }
 
+  function scheduleReconnect(): void {
+    if (reconnectTimer) {
+      return // 已经在等待重连
+    }
+    console.log(`[useWebSocket] Scheduling reconnect in ${RECONNECT_INTERVAL}ms...`)
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      if (reconnectUrl) {
+        console.log("[useWebSocket] Attempting to reconnect...")
+        connectWebSocket(reconnectUrl, reconnectToken)
+      }
+    }, RECONNECT_INTERVAL)
+  }
+
   function disconnectWebSocket(): void {
+    // 清除重连定时器
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    reconnectUrl = ""
+    reconnectToken = ""
+
     if (gwClient) {
       gwClient.disconnect()
       gwClient = null

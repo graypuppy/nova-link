@@ -17,6 +17,7 @@ export interface AppSettings {
 	llmModel: string
 	bgColor: string
 	bgOpacity: number
+	bgBlur: boolean
 }
 
 const DEFAULT_MODEL_PATH =
@@ -38,6 +39,7 @@ const defaultSettings: AppSettings = {
 	llmModel: "",
 	bgColor: "#1e293b",
 	bgOpacity: 0.2,
+	bgBlur: true,
 }
 
 const settings = ref<AppSettings>({ ...defaultSettings })

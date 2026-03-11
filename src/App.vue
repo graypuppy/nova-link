@@ -30,8 +30,14 @@ function hexToRgb(hex: string): string {
 
 function applyBackground() {
   const app = document.getElementById("app")
+  const chatPanel = document.getElementById("chat-panel")
   if (app) {
     app.style.background = `rgba(${hexToRgb(settings.value.bgColor)}, ${settings.value.bgOpacity})`
+    app.style.backdropFilter = settings.value.bgBlur ? "blur(20px)" : "none"
+  }
+  if (chatPanel) {
+    chatPanel.style.background = `rgba(${hexToRgb(settings.value.bgColor)}, ${settings.value.bgOpacity * 0.8})`
+    chatPanel.style.backdropFilter = settings.value.bgBlur ? "blur(10px)" : "none"
   }
 }
 
@@ -49,7 +55,11 @@ async function init() {
   console.log("[App] loading Live2D model...")
   await loadLive2DModel(settings.value.modelPath)
 
-  // WebSocket 连接改为手动触发（右键菜单）
+  // 自动连接 WebSocket
+  if (settings.value.wsUrl) {
+    console.log("[App] auto-connecting to Gateway:", settings.value.wsUrl)
+    connectWebSocket(settings.value.wsUrl, settings.value.wsToken)
+  }
 
   console.log("[App] setting up listeners...")
   await setupTauriListeners()
@@ -212,8 +222,8 @@ function closeSettings() {
 
 async function handleSettingsSave() {
   applyBackground()
-  await loadLive2DModel(settings.value.modelPath)
-  resizeLive2D()
+  // 使用 reloadModel 确保先移除旧模型再加载新模型（已包含正确的缩放）
+  await reloadModel(settings.value.modelPath)
   // WebSocket 连接改为手动触发
 }
 
@@ -268,6 +278,12 @@ async function handleRunGateway() {
   showContextMenu.value = false
 }
 
+function handleReconnectWs() {
+  console.log("[App] manual reconnecting to Gateway...")
+  connectWebSocket(settings.value.wsUrl, settings.value.wsToken)
+  showContextMenu.value = false
+}
+
 async function handleAppClose() {
   await destroyLive2D()
   await closeAppWindow()
@@ -312,6 +328,7 @@ onMounted(() => {
       @preview-motion="handlePreviewMotion"
       @reset-to-idle="handleResetToIdle"
       @run-gateway="handleRunGateway"
+      @reconnect-ws="handleReconnectWs"
     />
   </div>
 </template>
@@ -336,7 +353,6 @@ body {
   width: 100%;
   height: 100%;
   position: relative;
-  backdrop-filter: blur(20px);
   border-radius: 16px;
   overflow: hidden;
 }

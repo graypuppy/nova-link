@@ -19,6 +19,7 @@ const emit = defineEmits<{
   previewMotion: [motion: string]
   resetToIdle: []
   runGateway: []
+  reconnectWs: []
 }>()
 
 // 开发环境标识
@@ -74,6 +75,9 @@ function handleClick(item: string) {
       break
     case "resetToIdle":
       emit("resetToIdle")
+      break
+    case "reconnectWs":
+      emit("reconnectWs")
       break
   }
   emit("close")
@@ -166,6 +170,12 @@ onUnmounted(() => {
       <!-- 启动 Gateway 和 Debug (仅开发环境显示) -->
       <template v-if="isDev">
         <div class="menu-divider"></div>
+        <div
+          class="menu-item"
+          @click="handleClick('reconnectWs')"
+        >
+          重连 WebSocket
+        </div>
         <div
           class="menu-item"
           @click="handleClick('runGateway')"
