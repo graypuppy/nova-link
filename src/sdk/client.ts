@@ -81,9 +81,82 @@ export class GatewayClient {
 
 	private setupEventHandlers(): void {
 		console.log("[Gateway] Setting up event handlers...")
+		// 处理 chat 事件（标准格式）
 		this.eventHandlers.set("chat", (payload: ChatEventPayload) => {
 			console.log("[Gateway] chat event received:", payload)
 			this.handleChatEvent(payload)
+		})
+		// 处理 agent 事件（OpenClaw Gateway 格式）
+		this.eventHandlers.set("agent", (payload: any) => {
+			console.log("[Gateway] agent event received:", JSON.stringify(payload, null, 2))
+
+			// 处理生命周期事件
+			if (payload.stream === "lifecycle") {
+				if (payload.data?.phase === "start") {
+					// 开始思考
+					console.log("[Gateway] Agent started, showing thinking...")
+					this.onMessageStart?.(payload)
+				} else if (payload.data?.phase === "end" || payload.data?.phase === "done") {
+					// 消息结束，删除"正在思考"提示
+					console.log("[Gateway] Agent lifecycle end, current stream:", this._chatStream)
+					this.onMessageStop?.(payload)
+
+					// 如果有流式内容，先发送
+					if (this._chatStream && this._chatStream.trim()) {
+						const chatPayload: ChatEventPayload = {
+							sessionKey: payload.sessionKey || this.sessionKey,
+							runId: payload.runId,
+							state: "final",
+							message: {
+								role: "assistant",
+								content: [{ type: "text", text: this._chatStream }]
+							}
+						}
+						this.handleChatEvent(chatPayload)
+					} else {
+						// 没有流式内容，尝试获取历史消息
+						console.log("[Gateway] No stream content, fetching history...")
+						this.loadHistory(undefined, 1).then((result: any) => {
+							console.log("[Gateway] History result:", result)
+							if (result.messages && result.messages.length > 0) {
+								const latestMsg = result.messages[result.messages.length - 1]
+								console.log("[Gateway] Latest message:", latestMsg)
+								if (latestMsg.role === "assistant") {
+									this.onMessage?.(latestMsg)
+								}
+							}
+						}).catch((err: any) => {
+							console.error("[Gateway] Failed to get history:", err)
+						})
+					}
+				}
+				return
+			}
+
+			// 处理消息内容 - stream 可以是 message, text, output 等
+			if (payload.stream === "message" || payload.stream === "text" || payload.stream === "output") {
+				// 从 data 中提取文本
+				let text = ""
+				if (payload.data) {
+					text = payload.data.content || payload.data.text || payload.data.output || payload.data.message || ""
+				}
+				console.log("[Gateway] Processing agent message text:", text)
+				if (text) {
+					this._chatStream = text
+					this.onStreamUpdate?.(text)
+
+					const chatPayload: ChatEventPayload = {
+						sessionKey: payload.sessionKey || this.sessionKey,
+						runId: payload.runId,
+						state: "delta",
+						message: {
+							role: "assistant",
+							content: [{ type: "text", text }]
+						}
+					}
+					this.handleChatEvent(chatPayload)
+				}
+			}
 		})
 		this.eventHandlers.set("message_start", (payload: MessageStartPayload) => {
 			console.log("[Gateway] message_start event received:", payload)
@@ -172,11 +245,14 @@ export class GatewayClient {
 				}
 
 				this.ws.onmessage = (event) => {
+					console.log("[SDK] ========== Raw WebSocket message ==========")
+					console.log("[SDK] Raw data:", event.data)
 					try {
 						const msg: WsMessage = JSON.parse(event.data)
+						console.log("[SDK] Parsed message type:", msg.type)
 						this.handleMessage(msg)
 					} catch (e) {
-						console.error("Failed to parse message:", e)
+						console.error("[SDK] Failed to parse message:", e)
 					}
 				}
 
@@ -324,7 +400,11 @@ export class GatewayClient {
 	}
 
 	private handleChatEvent(event: ChatEventPayload): void {
+		console.log("[SDK] handleChatEvent called:", JSON.stringify(event, null, 2))
+		console.log("[SDK] event.message:", JSON.stringify(event.message, null, 2))
+
 		if (event.sessionKey !== this.sessionKey) {
+			console.log("[SDK] Session key mismatch, ignoring")
 			return
 		}
 
@@ -332,6 +412,7 @@ export class GatewayClient {
 			case "delta":
 				this._currentRunId = event.runId
 				const text = this.extractTextFromMessage(event.message)
+				console.log("[SDK] delta message, extracted text:", text)
 				if (text && !this.isSilentReply(text)) {
 					this._chatStream = text
 					this.onStreamUpdate?.(text)
@@ -341,23 +422,16 @@ export class GatewayClient {
 			case "final":
 				this._currentRunId = null
 				const finalText = this.extractTextFromMessage(event.message)
-				const hasStreamContent =
-					this._chatStream &&
-					this._chatStream.trim() &&
-					!this.isSilentReply(this._chatStream)
+				console.log("[SDK] final message, extracted from event.message:", finalText)
+				// 如果 event.message 没有内容，尝试从 _chatStream 获取
+				const contentToSend = finalText || this._chatStream
+				console.log("[SDK] content to send:", contentToSend)
 
-				if (finalText && finalText.trim() && !this.isSilentReply(finalText)) {
+				if (contentToSend && contentToSend.trim() && !this.isSilentReply(contentToSend)) {
+					console.log("[SDK] Sending final message via onMessage callback")
 					const newMessage: ChatMessage = {
 						role: "assistant",
-						content: [{ type: "text", text: finalText }],
-						timestamp: Date.now(),
-					}
-					this._chatMessages.push(newMessage)
-					this.onMessage?.(newMessage)
-				} else if (hasStreamContent) {
-					const newMessage: ChatMessage = {
-						role: "assistant",
-						content: [{ type: "text", text: this._chatStream }],
+						content: [{ type: "text", text: contentToSend }],
 						timestamp: Date.now(),
 					}
 					this._chatMessages.push(newMessage)

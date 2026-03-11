@@ -7,19 +7,38 @@ import { TitleBar, Live2DContainer, ChatPanel, SettingsModal, ContextMenu } from
 const { settings, loadSettings, saveSettings, updateLlmConfig } = useSettings()
 const { initLive2D, loadLive2DModel, reloadModel, hasModel, resizeLive2D, handleUserInteraction, handleUserMessage, handleBotThinking, handleBotMessage, handleMessageComplete, onModelClick, getCurrentState, previewState, previewMotion, resetToIdle, destroy: destroyLive2D } = useLive2D()
 const { wsStatus, connectWebSocket, sendMessage: sendWsMessage, isConnected } = useWebSocket({
+  onStatusChange: (status) => {
+    console.log("[App] WebSocket status changed:", status)
+  },
+  onConnected: (hello) => {
+    console.log("[App] WebSocket connected:", hello)
+  },
+  onDisconnected: () => {
+    console.log("[App] WebSocket disconnected")
+  },
+  onError: (error) => {
+    console.error("[App] WebSocket error:", error)
+  },
   onMessageStart: () => {
+    console.log("[App] Message start")
     startThinking()
   },
   onContentDelta: (payload: any) => {
+    console.log("[App] Content delta:", payload)
     updateLastBotMessage(payload.delta.content || "")
   },
   onMessageStop: () => {
+    console.log("[App] Message stop")
     stopStreaming()
   },
   onMessage: (message: any) => {
-    console.log("[App] WebSocket message received:", message)
+    console.log("[App] ========== WebSocket message received ==========")
+    console.log("[App] Full message:", JSON.stringify(message, null, 2))
+    console.log("[App] Message role:", message.role)
+    console.log("[App] Message content:", message.content)
     // 只处理 assistant（机器人）消息，不处理用户消息
     if (message.role === "user") {
+      console.log("[App] Skipping user message")
       return
     }
     // 处理消息内容
@@ -30,7 +49,9 @@ const { wsStatus, connectWebSocket, sendMessage: sendWsMessage, isConnected } = 
       } else if (typeof message.content === "string") {
         content = message.content
       }
+      console.log("[App] Parsed content:", content)
       if (content) {
+        console.log("[App] Adding bot message to chat")
         addMessage("bot", content)
       }
     }
