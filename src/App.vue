@@ -6,8 +6,37 @@ import { TitleBar, Live2DContainer, ChatPanel, SettingsModal, ContextMenu } from
 
 const { settings, loadSettings, saveSettings, updateLlmConfig } = useSettings()
 const { initLive2D, loadLive2DModel, reloadModel, hasModel, resizeLive2D, handleUserInteraction, handleUserMessage, handleBotThinking, handleBotMessage, handleMessageComplete, onModelClick, getCurrentState, previewState, previewMotion, resetToIdle, destroy: destroyLive2D } = useLive2D()
-const { wsStatus, connectWebSocket, sendMessage: sendWsMessage, isConnected } = useWebSocket()
-const { messages, inputMessage, isChatVisible, toggleChat, addMessage, updateLastBotMessage, startThinking, stopStreaming } = useChat()
+const { wsStatus, connectWebSocket, sendMessage: sendWsMessage, isConnected } = useWebSocket({
+  onMessageStart: () => {
+    startThinking()
+  },
+  onContentDelta: (payload: any) => {
+    updateLastBotMessage(payload.delta.content || "")
+  },
+  onMessageStop: () => {
+    stopStreaming()
+  },
+  onMessage: (message: any) => {
+    console.log("[App] WebSocket message received:", message)
+    // 只处理 assistant（机器人）消息，不处理用户消息
+    if (message.role === "user") {
+      return
+    }
+    // 处理消息内容
+    let content = ""
+    if (message.content) {
+      if (Array.isArray(message.content)) {
+        content = message.content.map((c: any) => c.text || "").join("")
+      } else if (typeof message.content === "string") {
+        content = message.content
+      }
+      if (content) {
+        addMessage("bot", content)
+      }
+    }
+  },
+})
+const { messages, isChatVisible, toggleChat, addMessage, updateLastBotMessage, startThinking, stopStreaming } = useChat()
 const { toggleAlwaysOnTop, minimizeWindow, closeWindow: closeAppWindow, resizeWindow } = useWindow()
 
 const showSettings = ref(false)
