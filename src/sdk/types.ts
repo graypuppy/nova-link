@@ -187,3 +187,9 @@ export interface GatewayClientOptions {
 	onConnected?: (hello: GatewayHelloOk) => void
 	onDisconnected?: () => void
 }
+
+// 情绪数据
+export interface EmotionData {
+	type: 'happy' | 'sad' | 'surprised' | 'angry' | 'idle'
+	duration?: number
+}

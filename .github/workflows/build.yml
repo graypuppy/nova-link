@@ -46,6 +46,15 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # 缓存 Vite 构建产物
+      - name: Cache Vite
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.vite
+          key: ${{ runner.os }}-vite-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vite-
+
       - name: Build Tauri app (MSI)
         uses: tauri-apps/tauri-action@v0
         env:
@@ -98,30 +107,28 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build Intel macOS app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 缓存 Vite 构建产物
+      - name: Cache Vite
+        uses: actions/cache@v4
         with:
-          tagName: ${{ github.ref_name }}-x86
-          releaseName: 'Nova Link ${{ github.ref_name }} (Intel)'
-          releaseBody: |
-            ### macOS Intel (x86_64)
-            Nova Link_x.x.x_x64.dmg
-          releaseDraft: false
-          prerelease: false
-          args: '--bundles dmg --target x86_64-apple-darwin'
+          path: node_modules/.vite
+          key: ${{ runner.os }}-vite-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vite-
 
-      - name: Build Apple Silicon macOS app
+      # 优化：一次构建生成 universal dmg（包含 Intel + Apple Silicon）
+      - name: Build Universal macOS app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}-arm
-          releaseName: 'Nova Link ${{ github.ref_name }} (Apple Silicon)'
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Nova Link ${{ github.ref_name }} (macOS Universal)'
           releaseBody: |
-            ### macOS Apple Silicon (aarch64)
-            Nova Link_x.x.x_aarch64.dmg
+            ### macOS Universal (x86_64 + aarch64)
+            Nova Link_x.x.x_universal.dmg
+
+            同时支持 Intel 和 Apple Silicon 芯片
           releaseDraft: false
           prerelease: false
-          args: '--bundles dmg --target aarch64-apple-darwin'
+          args: '--bundles dmg'

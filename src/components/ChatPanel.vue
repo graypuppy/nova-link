@@ -1,6 +1,13 @@
 <script setup lang="ts">
-	import { ref, nextTick, watch } from "vue"
+	import { ref, nextTick, watch, computed } from "vue"
+	import { marked } from "marked"
 	import type { ChatMessage, WsStatus } from "../composables"
+
+	// 配置 marked
+	marked.setOptions({
+		breaks: true,
+		gfm: true
+	})
 
 	const props = defineProps<{
 		visible: boolean
@@ -16,6 +23,16 @@
 	const messagesContainer = ref<HTMLElement | null>(null)
 	const inputRef = ref<HTMLInputElement | null>(null)
 	const localInput = ref("")
+
+	// 解析 Markdown
+	function parseMarkdown(content: string): string {
+		if (!content) return ''
+		try {
+			return marked(content) as string
+		} catch {
+			return content
+		}
+	}
 
 	watch(
 		() => props.messages.length,
@@ -62,7 +79,7 @@
 				class="message"
 				:class="msg.type !== 'user' ? 'bot' : 'user'"
 			>
-				{{ msg.content }}
+				<span v-html="parseMarkdown(msg.content)"></span>
 			</div>
 		</div>
 
@@ -126,6 +143,7 @@
 	#messages {
 		flex: 1;
 		overflow-y: auto;
+		overflow-x: hidden;
 		padding: 12px;
 		display: flex;
 		flex-direction: column;
@@ -140,7 +158,38 @@
 		font-size: 13px;
 		line-height: 1.4;
 		word-break: break-word;
+		overflow-wrap: break-word;
+		white-space: pre-wrap;
 		max-width: 85%;
+	}
+
+	.message span {
+		display: block;
+		word-break: break-word;
+		overflow-wrap: break-word;
+	}
+
+	/* 代码块样式 */
+	.message pre {
+		background: rgba(0, 0, 0, 0.3);
+		border-radius: 8px;
+		padding: 12px;
+		margin: 8px 0;
+		overflow-x: auto;
+		word-break: break-all;
+	}
+
+	.message code {
+		background: rgba(0, 0, 0, 0.2);
+		padding: 2px 6px;
+		border-radius: 4px;
+		font-family: "Consolas", "Monaco", monospace;
+		font-size: 12px;
+	}
+
+	.message pre code {
+		background: none;
+		padding: 0;
 	}
 
 	.message.user {

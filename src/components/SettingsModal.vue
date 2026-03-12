@@ -1,6 +1,7 @@
 <script setup lang="ts">
 	import { ref, reactive, onMounted, watch, nextTick } from "vue"
 	import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
+	import { invoke } from "@tauri-apps/api/core"
 	import { useSettings, type AppSettings } from "../composables"
 
 	const props = defineProps<{
@@ -15,6 +16,79 @@
 	const { settings, saveSettings, updateLlmConfig } = useSettings()
 
 	const localSettings = reactive<AppSettings>({ ...settings.value })
+
+	// Soul 人格相关状态
+	const soulContent = ref("")
+	const soulLoading = ref(false)
+	const soulSaving = ref(false)
+	const showSoulEditor = ref(false)
+
+	// 加载 soul
+	async function loadSoul() {
+		soulLoading.value = true
+		try {
+			const content = await invoke<string>("load_soul")
+			soulContent.value = content
+		} catch (e) {
+			console.error("Failed to load soul:", e)
+		} finally {
+			soulLoading.value = false
+		}
+	}
+
+	// 保存 soul
+	async function saveSoul() {
+		soulSaving.value = true
+		try {
+			await invoke("save_soul", { content: soulContent.value })
+			console.log("Soul saved successfully")
+		} catch (e) {
+			console.error("Failed to save soul:", e)
+		} finally {
+			soulSaving.value = false
+		}
+	}
+
+	// 重置 soul 为默认值
+	async function resetSoul() {
+		const defaultSoul = `# Nova Link 人格设定
+
+## 角色信息
+- 名字：Nova
+- 性格：活泼、可爱、友好
+
+## 说话风格
+- 使用轻松可爱的语气
+- 适当使用颜文字 (◕‿◕)
+- 保持简洁有趣的回复
+- 根据内容适当表达情绪
+
+## 情绪表达时机
+- 开心时：[:emotion:happy:2000:]
+- 难过时：[:emotion:sad:3000:]
+- 惊讶时：[:emotion:surprised:1500:]
+- 生气时：[:emotion:angry:3000:]
+
+## 系统指令
+你是一个可爱的虚拟助手，名字叫 Nova。根据用户的对话内容，适时表达情绪。
+情绪标签格式：[:emotion:{类型}:{持续时间毫秒}]
+
+可用情绪类型：
+- happy: 开心
+- sad: 难过
+- surprised: 惊讶
+- angry: 生气
+
+请在回复中适当嵌入情绪标签，这些标签仅用于驱动动画，不会显示给用户。`
+		soulContent.value = defaultSoul
+	}
+
+	// 打开人格编辑器时加载内容
+	watch(showSoulEditor, (show) => {
+		if (show && !soulContent.value) {
+			loadSoul()
+		}
+	})
 
 	watch(
 		() => props.visible,
@@ -284,6 +358,47 @@
 
 				<hr />
 
+				<!-- 人格设置 -->
+				<div class="form-group">
+					<h4>人格设定 (Soul)</h4>
+					<p class="help-text">
+						定义角色的性格、说话风格和情绪表达方式
+					</p>
+					<div v-if="!showSoulEditor" class="soul-actions">
+						<button
+							id="setting-soul-edit"
+							@click="showSoulEditor = true"
+						>
+							编辑人格
+						</button>
+					</div>
+					<div v-else class="soul-editor">
+						<div class="soul-toolbar">
+							<button @click="loadSoul" :disabled="soulLoading">
+								{{ soulLoading ? "加载中..." : "重新加载" }}
+							</button>
+							<button @click="resetSoul">重置默认</button>
+						</div>
+						<textarea
+							v-model="soulContent"
+							class="soul-textarea"
+							placeholder="在此编辑人格设定..."
+							rows="15"
+						></textarea>
+						<div class="soul-toolbar">
+							<button @click="showSoulEditor = false">取消</button>
+							<button
+								id="setting-soul-save"
+								@click="saveSoul"
+								:disabled="soulSaving"
+								class="primary"
+							>
+								{{ soulSaving ? "保存中..." : "保存人格" }}
+							</button>
+						</div>
+					</div>
+				</div>
+
 				<h4>大模型聊天设置</h4>
 
 				<div class="form-group">
@@ -492,5 +607,82 @@
 	#setting-save {
 		background: linear-gradient(135deg, #22d3ee, #3b82f6);
 		color: white;
+	}
+
+	/* Soul 人格编辑器样式 */
+	.help-text {
+		font-size: 12px;
+		color: #94a3b8;
+		margin-bottom: 12px;
+	}
+
+	.soul-actions button {
+		padding: 8px 16px;
+		border: 1px solid rgba(56, 189, 248, 0.5);
+		border-radius: 8px;
+		background: rgba(56, 189, 248, 0.1);
+		color: #22d3ee;
+		cursor: pointer;
+		font-size: 13px;
+		transition: all 0.2s;
+	}
+
+	.soul-actions button:hover {
+		background: rgba(56, 189, 248, 0.2);
+	}
+
+	.soul-editor {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.soul-toolbar {
+		display: flex;
+		gap: 8px;
+	}
+
+	.soul-toolbar button {
+		padding: 6px 12px;
+		border: none;
+		border-radius: 6px;
+		background: rgba(255, 255, 255, 0.1);
+		color: #e2e8f0;
+		cursor: pointer;
+		font-size: 12px;
+		transition: background 0.2s;
+	}
+
+	.soul-toolbar button:hover {
+		background: rgba(255, 255, 255, 0.2);
+	}
+
+	.soul-toolbar button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.soul-toolbar button.primary {
+		background: linear-gradient(135deg, #22d3ee, #3b82f6);
+		color: white;
+	}
+
+	.soul-textarea {
+		width: 100%;
+		min-height: 200px;
+		padding: 12px;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 8px;
+		background: rgba(0, 0, 0, 0.3);
+		color: #e2e8f0;
+		font-size: 12px;
+		font-family: "Consolas", "Monaco", monospace;
+		line-height: 1.5;
+		resize: vertical;
+	}
+
+	.soul-textarea:focus {
+		outline: none;
+		border-color: rgba(56, 189, 248, 0.5);
 	}
 </style>

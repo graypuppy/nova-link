@@ -122,6 +122,82 @@ fn save_setting(key: String, value: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 获取 soul.md 文件路径
+fn get_soul_path() -> Result<PathBuf, String> {
+    let data_dir = dirs::data_local_dir()
+        .ok_or("Cannot find data directory")?
+        .join("nova-link");
+    std::fs::create_dir_all(&data_dir).ok();
+    Ok(data_dir.join("soul.md"))
+}
+
+/// 默认 soul.md 内容
+const DEFAULT_SOUL: &str = r#"# Nova Link 人格设定
+
+## 角色信息
+- 名字：Nova
+- 性格：活泼、可爱、友好
+
+## 说话风格
+- 使用轻松可爱的语气
+- 适当使用颜文字 (◕‿◕)
+- 保持简洁有趣的回复
+- 根据内容适当表达情绪
+
+## 情绪表达时机
+- 开心时：[:emotion:happy:2000:]
+- 难过时：[:emotion:sad:3000:]
+- 惊讶时：[:emotion:surprised:1500:]
+- 生气时：[:emotion:angry:3000:]
+
+## 系统指令
+你是一个可爱的虚拟助手，名字叫 Nova。根据用户的对话内容，适时表达情绪。
+情绪标签格式：[:emotion:{类型}:{持续时间毫秒}]
+
+可用情绪类型：
+- happy: 开心
+- sad: 难过
+- surprised: 惊讶
+- angry: 生气
+
+请在回复中适当嵌入情绪标签，这些标签仅用于驱动动画，不会显示给用户。
+"#;
+
+/// 保存人格设定到 soul.md
+#[tauri::command]
+fn save_soul(content: String) -> Result<(), String> {
+    let path = get_soul_path()?;
+    std::fs::write(&path, &content).map_err(|e| e.to_string())?;
+    info!("Soul saved to: {:?}", path);
+    Ok(())
+}
+
+/// 加载人格设定
+#[tauri::command]
+fn load_soul() -> Result<String, String> {
+    let path = get_soul_path()?;
+    if path.exists() {
+        std::fs::read_to_string(&path).map_err(|e| e.to_string())
+    } else {
+        Ok(DEFAULT_SOUL.to_string())
+    }
+}
+
+/// 从 soul.md 内容中提取系统指令
+/// 提取 "## 系统指令" 后的内容
+fn extract_system_instruction(soul_content: &str) -> String {
+    // 查找 "## 系统指令" 部分
+    if let Some(idx) = soul_content.find("## 系统指令") {
+        let after_title = &soul_content[idx + "## 系统指令".len()..];
+        // 找到下一个 ## 标题之前的内容，或者文件结尾
+        let end_idx = after_title.find("##").unwrap_or(after_title.len());
+        let instruction = after_title[..end_idx].trim();
+        return instruction.to_string();
+    }
+    // 如果没有找到系统指令部分，返回整个内容
+    soul_content.to_string()
+}
+
 #[tauri::command]
 fn get_setting(key: String) -> Result<Option<String>, String> {
     let conn = init_db().map_err(|e| e.to_string())?;
@@ -193,6 +269,7 @@ async fn chat_with_llm(
     api_url: String,
     model: String,
     message: String,
+    system_prompt: Option<String>,
 ) -> Result<String, String> {
     if provider == "none" || api_key.is_empty() || api_url.is_empty() {
         return Err("LLM not configured".to_string());
@@ -200,10 +277,25 @@ async fn chat_with_llm(
 
     let url = format!("{}/chat/completions", api_url.trim_end_matches('/'));
 
-    let messages = vec![LlmMessage {
+    // 构建消息列表，支持注入 system prompt
+    let mut messages: Vec<LlmMessage> = Vec::new();
+
+    // 如果提供了 system prompt，添加到消息列表
+    if let Some(system_content) = system_prompt {
+        // 从 soul.md 中提取系统指令部分
+        let system_instruction = extract_system_instruction(&system_content);
+        if !system_instruction.is_empty() {
+            messages.push(LlmMessage {
+                role: "system".to_string(),
+                content: system_instruction,
+            });
+        }
+    }
+
+    messages.push(LlmMessage {
         role: "user".to_string(),
         content: message,
-    }];
+    });
 
     let request_body = serde_json::json!({
         "model": model,
@@ -267,6 +359,8 @@ pub fn run() {
             save_setting,
             get_setting,
             run_gateway,
+            save_soul,
+            load_soul,
         ])
         .setup(|app| {
             println!("[DEBUG] Nova Link setup starting...");

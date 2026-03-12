@@ -28,6 +28,7 @@
 		handleUserMessage,
 		handleBotThinking,
 		handleBotMessage,
+		handleEmotion,
 		handleMessageComplete,
 		onModelClick,
 		getCurrentState,
@@ -66,6 +67,11 @@
 		onMessageStop: () => {
 			console.log("[App] Message stop")
 			stopStreaming()
+		},
+		onEmotion: (emotion) => {
+			console.log("[App] Emotion received:", emotion)
+			// 触发 Live2D 动画
+			handleEmotion(emotion)
 		},
 		onMessage: (message: any) => {
 			console.log("[App] ========== WebSocket message received ==========")
@@ -227,12 +233,22 @@
 
 			try {
 				const { invoke } = await import("@tauri-apps/api/core")
+
+				// 加载人格设定
+				let systemPrompt: string | undefined = undefined
+				try {
+					systemPrompt = await invoke<string>("load_soul")
+				} catch (e) {
+					console.warn("Failed to load soul:", e)
+				}
+
 				const response = await invoke<string>("chat_with_llm", {
 					provider: settings.value.llmProvider,
 					apiKey: settings.value.llmApiKey,
 					apiUrl: settings.value.llmApiUrl,
 					model: settings.value.llmModel,
 					message: content,
+					systemPrompt: systemPrompt,
 				})
 
 				stopStreaming()

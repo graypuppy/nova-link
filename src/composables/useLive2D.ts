@@ -335,6 +335,30 @@ export function useLive2D() {
     }
   }
 
+  /**
+   * 处理外部传入的情绪数据
+   * 用于从大模型回复中提取的情绪标签触发动画
+   */
+  function handleEmotion(emotion: { type: string; duration?: number }): void {
+    if (!stateMachine) {
+      console.warn("[useLive2D] State machine not initialized")
+      return
+    }
+
+    const stateMap: Record<string, AnimationState> = {
+      happy: AnimationState.HAPPY,
+      sad: AnimationState.SAD,
+      surprised: AnimationState.SURPRISED,
+      angry: AnimationState.ANGRY,
+      idle: AnimationState.IDLE
+    }
+
+    const state = stateMap[emotion.type] || AnimationState.IDLE
+    console.log(`[useLive2D] Handling emotion: ${emotion.type} -> ${state}`)
+
+    stateMachine.transition(state)
+  }
+
   async function destroy(): Promise<void> {
     if (mouseHandler) {
       mouseHandler.destroy()
@@ -377,6 +401,7 @@ export function useLive2D() {
     handleUserMessage,
     handleBotThinking,
     handleBotMessage,
+    handleEmotion,
     handleMessageComplete,
     onModelClick,
     onModelDoubleClick,

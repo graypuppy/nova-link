@@ -1,5 +1,7 @@
 import { ref } from "vue"
 import { GatewayClient } from "../sdk/index.js"
+import type { EmotionData } from "../sdk/types"
+import { extractEmotion } from "../utils/emotionParser"
 
 export type WsStatus = "connected" | "connecting" | "disconnected" | "error"
 
@@ -11,6 +13,7 @@ export interface UseWebSocketOptions {
   onMessageStop?: (payload: any) => void
   onConnected?: (hello: any) => void
   onError?: (error: string) => void
+  onEmotion?: (emotion: EmotionData) => void
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
@@ -55,11 +58,35 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       },
       onMessage: (message) => {
         console.log("[useWebSocket] Gateway message received:", message)
-        options.onMessage?.(message)
+        // 提取消息内容中的情绪
+        const content = message.content?.[0]?.text || ''
+        const { content: cleanContent, emotion } = extractEmotion(content)
+
+        // 如果包含情绪，触发情绪回调
+        if (emotion) {
+          console.log("[useWebSocket] Emotion detected:", emotion)
+          options.onEmotion?.(emotion)
+        }
+
+        // 返回处理后的消息
+        options.onMessage?.({
+          ...message,
+          content: [{ text: cleanContent }],
+          _emotion: emotion
+        })
       },
       onStreamUpdate: (text) => {
         console.log("[useWebSocket] Gateway stream update:", text)
-        options.onStreamUpdate?.(text)
+        // 解析流式内容中的情绪
+        const { content, emotion } = extractEmotion(text)
+
+        // 如果发现情绪标签，触发情绪回调
+        if (emotion) {
+          console.log("[useWebSocket] Stream emotion detected:", emotion)
+          options.onEmotion?.(emotion)
+        }
+
+        options.onStreamUpdate?.(content)
       },
       onMessageStart: (payload) => {
         console.log("[useWebSocket] Message start:", payload)
