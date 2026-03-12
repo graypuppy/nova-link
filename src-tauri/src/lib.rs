@@ -2,12 +2,13 @@ use log::info;
 use reqwest::Client;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    State, WindowEvent,
+    Emitter, Manager, State, WindowEvent,
 };
 
 mod command_runner;
@@ -30,6 +31,56 @@ fn get_db_path() -> PathBuf {
     data_dir.join("config.db")
 }
 
+// ============ 窗口状态文件存储（exe 同级目录）============
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WindowState {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// 获取窗口状态文件路径（exe 同级目录）
+fn get_window_state_path() -> PathBuf {
+    // 获取 exe 所在目录
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            return exe_dir.join("window-state.json");
+        }
+    }
+    // 回退到当前目录
+    PathBuf::from("window-state.json")
+}
+
+/// 保存窗口状态到文件
+fn save_window_state_to_file(x: i32, y: i32, width: u32, height: u32) -> Result<(), String> {
+    let path = get_window_state_path();
+    let state = WindowState { x, y, width, height };
+    let json = serde_json::to_string_pretty(&state).map_err(|e| e.to_string())?;
+    fs::write(&path, json).map_err(|e| e.to_string())?;
+    info!("Window state saved to: {:?}", path);
+    Ok(())
+}
+
+/// 从文件加载窗口状态
+fn load_window_state_from_file() -> Result<Option<WindowState>, String> {
+    let path = get_window_state_path();
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let state: WindowState = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    info!("Window state loaded from: {:?}", path);
+    Ok(Some(state))
+}
+
+/// 检查是否有保存的窗口状态
+#[tauri::command]
+fn has_window_state() -> bool {
+    load_window_state_from_file().map(|s| s.is_some()).unwrap_or(false)
+}
+
 fn init_db() -> Result<Connection, rusqlite::Error> {
     let conn = Connection::open(get_db_path())?;
 
@@ -37,17 +88,6 @@ fn init_db() -> Result<Connection, rusqlite::Error> {
         "CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
-        )",
-        [],
-    )?;
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS window_position (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            x INTEGER NOT NULL,
-            y INTEGER NOT NULL,
-            width INTEGER NOT NULL,
-            height INTEGER NOT NULL
         )",
         [],
     )?;
@@ -77,58 +117,67 @@ fn init_db() -> Result<Connection, rusqlite::Error> {
     Ok(conn)
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct WindowPosition {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
+// ============ 窗口大小设置命令（供前端调用） ============
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WindowSize {
+    pub width: u32,
+    pub height: u32,
 }
 
+/// 设置窗口大小（前端调用）
 #[tauri::command]
-fn save_window_position(x: i32, y: i32, width: u32, height: u32) -> Result<(), String> {
-    let conn = init_db().map_err(|e| e.to_string())?;
+async fn set_window_size(window: tauri::Window, width: u32, height: u32) -> Result<(), String> {
+    // 确保最小尺寸
+    let min_width = 300u32;
+    let min_height = 400u32;
+    let w = width.max(min_width);
+    let h = height.max(min_height);
 
-    conn.execute(
-        "INSERT OR REPLACE INTO window_position (id, x, y, width, height) VALUES (1, ?1, ?2, ?3, ?4)",
-        rusqlite::params![x, y, width as i32, height as i32],
-    ).map_err(|e| e.to_string())?;
+    window
+        .set_size(tauri::Size::Physical(tauri::PhysicalSize::new(w, h)))
+        .map_err(|e| e.to_string())?;
 
-    info!(
-        "Window position saved: x={}, y={}, width={}, height={}",
-        x, y, width, height
-    );
+    info!("Window size set to {}x{}", w, h);
     Ok(())
 }
 
+/// 获取当前窗口大小
 #[tauri::command]
-fn get_window_position() -> Result<Option<WindowPosition>, String> {
-    let conn = init_db().map_err(|e| e.to_string())?;
+async fn get_window_size(window: tauri::Window) -> Result<WindowSize, String> {
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    Ok(WindowSize {
+        width: size.width,
+        height: size.height,
+    })
+}
 
-    let mut stmt = conn
-        .prepare("SELECT x, y, width, height FROM window_position WHERE id = 1")
+/// 根据屏幕尺寸设置默认窗口大小（首次启动时调用）
+/// 宽度 = 屏幕宽度 / 6，高度 = 宽度 * 2
+#[tauri::command]
+async fn set_default_window_size(window: tauri::Window) -> Result<WindowSize, String> {
+    // 获取主屏幕尺寸
+    let monitor = window.current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or("Cannot get monitor")?;
+
+    let screen_size = monitor.size();
+    let width = (screen_size.width as f64 / 6.0) as u32;
+    let height = width * 2;
+
+    // 确保最小尺寸
+    let min_width = 300u32;
+    let min_height = 400u32;
+    let w = width.max(min_width);
+    let h = height.max(min_height);
+
+    window
+        .set_size(tauri::Size::Physical(tauri::PhysicalSize::new(w, h)))
         .map_err(|e| e.to_string())?;
 
-    let result = stmt.query_row([], |row| {
-        Ok(WindowPosition {
-            x: row.get(0)?,
-            y: row.get(1)?,
-            width: row.get::<_, i32>(2)? as u32,
-            height: row.get::<_, i32>(3)? as u32,
-        })
-    });
-    println!("{:?}", result);
-    match result {
-        Ok(pos) => {
-            info!(
-                "Loaded window position: x={}, y={}, width={}, height={}",
-                pos.x, pos.y, pos.width, pos.height
-            );
-            Ok(Some(pos))
-        }
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
+    info!("Default window size set to {}x{} (1/6 screen width, height = width * 2)", w, h);
+
+    Ok(WindowSize { width: w, height: h })
 }
 
 #[tauri::command]
@@ -753,8 +802,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             chat_with_llm,
             update_llm_config,
-            save_window_position,
-            get_window_position,
+            set_window_size,
+            get_window_size,
+            set_default_window_size,
+            has_window_state,
             save_setting,
             get_setting,
             run_gateway,
@@ -776,22 +827,35 @@ pub fn run() {
         .setup(|app| {
             println!("[DEBUG] Nova Link setup starting...");
 
-            // 设置窗口大小：主屏幕宽度的 1/6，高度 的 1/3
-            use tauri::Manager;
-            if let Some(window) = app.get_webview_window("main") {
-                // 获取主屏幕尺寸
-                if let Ok(monitor) = window.current_monitor() {
-                    if let Some(monitor) = monitor {
-                        let screen_size = monitor.size();
-                        let width = (screen_size.width as f64 / 6.0) as u32;
-                        let height = (screen_size.height as f64 / 3.0) as u32;
-
-                        // 确保最小尺寸
-                        let width = width.max(300);
-                        let height = height.max(400);
-
-                        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(width, height)));
-                        println!("[DEBUG] Window size set to {}x{} (1/6 width, 1/3 height)", width, height);
+            // 尝试从文件恢复窗口状态
+            if let Ok(Some(state)) = load_window_state_from_file() {
+                if let Some(window) = app.get_webview_window("main") {
+                    // 先设置位置
+                    let _ = window.set_position(tauri::Position::Physical(
+                        tauri::PhysicalPosition::new(state.x, state.y),
+                    ));
+                    // 再设置大小
+                    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+                        state.width, state.height,
+                    )));
+                    println!("[DEBUG] Window state restored: {}x{} at ({}, {})",
+                        state.width, state.height, state.x, state.y);
+                }
+            } else {
+                // 如果没有保存的状态，根据屏幕尺寸计算默认大小
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Ok(monitor) = window.current_monitor() {
+                        if let Some(monitor) = monitor {
+                            let screen_size = monitor.size();
+                            let width = (screen_size.width as f64 / 6.0) as u32;
+                            let height = width * 2;
+                            let min_width = 300u32;
+                            let min_height = 400u32;
+                            let w = width.max(min_width);
+                            let h = height.max(min_height);
+                            let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(w, h)));
+                            println!("[DEBUG] Default window size set: {}x{}", w, h);
+                        }
                     }
                 }
             }
@@ -799,7 +863,6 @@ pub fn run() {
             // 平台特定的透明窗口处理
             #[cfg(target_os = "macos")]
             {
-                use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
                     // macOS 上启用透明需要设置 NSWindow 的相关属性
                     // 通过 JavaScript 注入来确保透明生效（多层防护机制）
@@ -821,7 +884,6 @@ pub fn run() {
             // Windows 透明窗口处理
             #[cfg(target_os = "windows")]
             {
-                use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
                     // Windows 透明窗口处理（多层防护机制）
                     let js = r#"
@@ -842,7 +904,6 @@ pub fn run() {
             // Linux 透明窗口处理
             #[cfg(target_os = "linux")]
             {
-                use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
                     let js = r#"
                         document.body.style.background = 'transparent';
@@ -858,22 +919,9 @@ pub fn run() {
                     println!("[DEBUG] Linux transparent window setup complete");
                 }
             }
-            // 简单的窗口位置恢复
-            if let Ok(Some(pos)) = get_window_position() {
-                if let Some(window) = app.get_webview_window("main") {
-                    // 先设置位置
-                    let _ = window.set_position(tauri::Position::Physical(
-                        tauri::PhysicalPosition::new(pos.x, pos.y),
-                    ));
-                    // 再设置大小
-                    let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
-                        pos.width, pos.height,
-                    )));
-                    println!("[DEBUG] Window position restored: {:?}", pos);
-                }
-            }
 
             // 创建系统托盘
+            // 注意：窗口位置和大小由 tauri-plugin-window-state 自动保存和恢复
             let show_item = MenuItem::with_id(app, "show", "显示", true, None::<&str>).unwrap();
             let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>).unwrap();
             let menu = Menu::with_items(app, &[&show_item, &quit_item]).unwrap();
@@ -890,11 +938,11 @@ pub fn run() {
                         }
                     }
                     "quit" => {
+                        // 保存窗口状态后退出
                         if let Some(window) = app.get_webview_window("main") {
                             if let Ok(pos) = window.outer_position() {
                                 if let Ok(size) = window.outer_size() {
-                                    let _ =
-                                        save_window_position(pos.x, pos.y, size.width, size.height);
+                                    let _ = save_window_state_to_file(pos.x, pos.y, size.width, size.height);
                                 }
                             }
                         }
@@ -924,6 +972,12 @@ pub fn run() {
             println!("[DEBUG] Window event: {:?}", event);
             if let WindowEvent::CloseRequested { api, .. } = event {
                 println!("[DEBUG] Close requested, hiding window");
+                // 保存窗口状态后再隐藏
+                if let Ok(pos) = window.outer_position() {
+                    if let Ok(size) = window.outer_size() {
+                        let _ = save_window_state_to_file(pos.x, pos.y, size.width, size.height);
+                    }
+                }
                 api.prevent_close();
                 let _ = window.hide();
             }
@@ -934,6 +988,10 @@ pub fn run() {
                     println!("[DEBUG] Window size too small, ignoring");
                     return;
                 }
+                // 保存窗口状态
+                if let Ok(pos) = window.outer_position() {
+                    let _ = save_window_state_to_file(pos.x, pos.y, size.width, size.height);
+                }
             }
             if let WindowEvent::Moved(pos) = event {
                 println!("[DEBUG] Window moved: {:?}", pos);
@@ -942,9 +1000,17 @@ pub fn run() {
                     println!("[DEBUG] Window moved to hidden position, ignoring");
                     return;
                 }
+                // 保存窗口状态
+                if let Ok(size) = window.outer_size() {
+                    let _ = save_window_state_to_file(pos.x, pos.y, size.width, size.height);
+                }
             }
             if let WindowEvent::Focused(focused) = event {
                 println!("[DEBUG] Window focused: {}", focused);
+                // 当窗口获得焦点时，通知前端可能需要重新加载 Live2D
+                if *focused {
+                    let _ = window.emit("window-shown", ());
+                }
             }
         })
         .run(tauri::generate_context!())

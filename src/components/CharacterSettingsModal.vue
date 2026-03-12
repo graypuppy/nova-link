@@ -1,5 +1,5 @@
 <script setup lang="ts">
-	import { ref, reactive, onMounted, watch } from "vue"
+	import { ref, reactive, onMounted, onUnmounted, watch, computed } from "vue"
 	import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 	import { invoke } from "@tauri-apps/api/core"
 	import { useSettings, type AppSettings } from "../composables"
@@ -14,6 +14,32 @@
 	}>()
 
 	const { settings, saveSettings, updateLlmConfig } = useSettings()
+
+	// ============ 窗口尺寸约束 ============
+
+	// 获取父窗口尺寸
+	const parentWindowSize = reactive({ width: 0, height: 0 })
+
+	async function updateParentWindowSize() {
+		try {
+			const win = await getCurrentWindow()
+			const size = await win.outerSize()
+			parentWindowSize.width = size.width
+			parentWindowSize.height = size.height
+		} catch (e) {
+			console.error("Failed to get window size:", e)
+		}
+	}
+
+	// Modal 样式 - 动态约束不超过父窗口
+	const modalStyle = computed(() => {
+		const maxW = Math.min(parentWindowSize.width - 40, 800)
+		const maxH = Math.min(parentWindowSize.height - 40, 1200)
+		return {
+			maxWidth: `${maxW}px`,
+			maxHeight: `${maxH}px`,
+		}
+	})
 
 	// ============ 状态定义 ============
 
@@ -130,6 +156,9 @@
 	async function loadAllData() {
 		loading.value = true
 		try {
+			// 更新父窗口尺寸
+			await updateParentWindowSize()
+
 			// 加载 Identity（从文件读取）
 			const identityData = await invoke<any>("load_identity_from_file")
 			Object.assign(identity, {
@@ -157,18 +186,38 @@
 			soulOriginalContent.value = soul
 			soulEditable.value = false
 
-			// 加载应用设置
+			// 加载当前窗口尺寸
+			const win = await getCurrentWindow()
+			const size = await win.outerSize()
+			localSettings.windowWidth = size.width
+			localSettings.windowHeight = size.height
+
+			// 加载其他应用设置
 			Object.assign(localSettings, settings.value)
 		} catch (e) {
 			console.error("Failed to load data:", e)
 		} finally {
 			loading.value = false
+			isLoadingData = false
 		}
 	}
 
 	// ============ 保存函数 ============
 
+	let saveDebounceTimeout: ReturnType<typeof setTimeout> | null = null
+
 	async function saveAll() {
+		// 防抖：清除之前的定时器
+		if (saveDebounceTimeout) {
+			clearTimeout(saveDebounceTimeout)
+		}
+
+		saveDebounceTimeout = setTimeout(async () => {
+			await doSave()
+		}, 300) // 300ms 防抖
+	}
+
+	async function doSave() {
 		saving.value = true
 		try {
 			// 保存 Identity 到 SQLite
@@ -195,23 +244,18 @@
 				await invoke("save_soul", { content: soulContent.value })
 			}
 
-			// 保存应用设置
+			// 保存应用设置（窗口大小由 plugin 自动保存）
 			Object.assign(settings.value, localSettings)
 			await saveSettings()
 			await updateLlmConfig()
 
-			// 保存窗口位置
+			// 确保最终窗口大小正确（保存时再次应用）
 			const win = await getCurrentWindow()
-			const position = await win.outerPosition()
-			const size = await win.outerSize()
-			await invoke("save_window_position", {
-				x: position.x,
-				y: position.y,
-				width: size.width,
-				height: size.height,
-			})
 			await win.setSize(
-				new LogicalSize(localSettings.windowWidth, localSettings.windowHeight),
+				new LogicalSize(
+					Math.max(300, localSettings.windowWidth),
+					Math.max(400, localSettings.windowHeight),
+				),
 			)
 
 			emit("save", localSettings)
@@ -291,6 +335,13 @@
 		if (props.visible) {
 			loadAllData()
 		}
+		// 监听窗口大小变化
+		window.addEventListener("resize", updateParentWindowSize)
+	})
+
+	// 组件卸载时移除监听
+	onUnmounted(() => {
+		window.removeEventListener("resize", updateParentWindowSize)
 	})
 </script>
 
@@ -301,7 +352,7 @@
 			class="modal-overlay"
 			@click.self="emit('close')"
 		>
-			<div class="modal-content">
+			<div class="modal-content" :style="modalStyle">
 				<!-- 加载状态 -->
 				<div
 					v-if="loading"

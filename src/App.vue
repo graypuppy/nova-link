@@ -1,6 +1,7 @@
 <script setup lang="ts">
 	import { ref, onMounted, watch, nextTick, computed } from "vue"
 	import { listen } from "@tauri-apps/api/event"
+	import { invoke } from "@tauri-apps/api/core"
 	import {
 		useSettings,
 		useLive2D,
@@ -185,6 +186,18 @@
 			const payload = event.payload as string
 			console.log("[nova-link-message]", payload)
 			handleIncomingMessage(payload)
+		})
+
+		// 监听窗口显示事件，从托盘恢复时重新加载 Live2D
+		await listen("window-shown", async () => {
+			console.log("[App] Window shown, checking Live2D...")
+			// 等待 DOM 准备好
+			await nextTick()
+			setTimeout(async () => {
+				console.log("[App] Live2D not initialized, reinitializing...")
+				await initLive2D()
+				await loadLive2DModel(settings.value.modelPath)
+			}, 100)
 		})
 	}
 
@@ -406,7 +419,7 @@
 	}
 
 	async function handleAppClose() {
-		await destroyLive2D()
+		// 只隐藏窗口，不销毁 Live2D（从托盘恢复时需要）
 		await closeAppWindow()
 	}
 
@@ -438,7 +451,7 @@
 		}
 	})
 
-	onMounted(() => {
+	onMounted(async () => {
 		// 多层透明保障机制 - 参考技术文档
 		// 确保透明背景在 Vue 挂载后正确设置
 		setTimeout(() => {
@@ -454,6 +467,20 @@
 				canvas.style.background = "transparent"
 			}
 		}, 100)
+
+		// 尝试设置默认窗口大小（基于屏幕尺寸）
+		// 只有在没有保存的状态时才设置默认大小
+		try {
+			const hasState = await invoke<boolean>("has_window_state")
+			if (!hasState) {
+				await invoke("set_default_window_size")
+				console.log("[App] Default window size applied (first launch)")
+			} else {
+				console.log("[App] Using saved window state")
+			}
+		} catch (e) {
+			console.log("[App] Error checking window state:", e)
+		}
 
 		init()
 	})
