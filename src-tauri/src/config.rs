@@ -1,0 +1,362 @@
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
+
+/// 获取配置目录路径（exe 同级 config/ 目录）
+pub fn get_config_dir() -> PathBuf {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            return exe_dir.join("config");
+        }
+    }
+    PathBuf::from("config")
+}
+
+/// 确保配置目录存在
+pub fn ensure_config_dir() -> Result<PathBuf, String> {
+    let config_dir = get_config_dir();
+    fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    Ok(config_dir)
+}
+
+// ============ 模板系统 ============
+
+/// 渲染模板（简单的占位符替换）
+pub fn render_template(template: &str, vars: &[(&str, &str)]) -> String {
+    let mut result = template.to_string();
+    for (key, value) in vars {
+        let placeholder = format!("{{{}}}", key);
+        result = result.replace(&placeholder, value);
+    }
+    result
+}
+
+/// 嵌入模板（使用 include_str! 宏）
+pub const IDENTITY_TEMPLATE: &str = include_str!("../templates/identity.md");
+pub const USER_TEMPLATE: &str = include_str!("../templates/user.md");
+pub const SOUL_TEMPLATE: &str = include_str!("../templates/soul.md");
+
+// ============ 配置结构体 ============
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AppSettings {
+    pub model_path: String,
+    pub ws_url: String,
+    pub ws_token: String,
+    pub chat_provider: String,
+    pub llm_provider: String,
+    pub llm_api_key: String,
+    pub llm_api_url: String,
+    pub llm_model: String,
+    pub window_width: u32,
+    pub window_height: u32,
+    pub window_x: Option<i32>,
+    pub window_y: Option<i32>,
+    pub bg_color: String,
+    pub bg_opacity: f32,
+    pub bg_blur: bool,
+    pub always_on_top: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            model_path: String::new(),
+            ws_url: "ws://127.0.0.1:18789".to_string(),
+            ws_token: String::new(),
+            chat_provider: "openclaw".to_string(),
+            llm_provider: "none".to_string(),
+            llm_api_key: String::new(),
+            llm_api_url: String::new(),
+            llm_model: String::new(),
+            window_width: 400,
+            window_height: 800,
+            window_x: None,
+            window_y: None,
+            bg_color: "#1e293b".to_string(),
+            bg_opacity: 0.8,
+            bg_blur: true,
+            always_on_top: true,
+        }
+    }
+}
+
+/// 保存应用设置
+pub fn save_settings(settings: &AppSettings) -> Result<(), String> {
+    let config_dir = ensure_config_dir()?;
+    let config_path = config_dir.join("config.json");
+    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    fs::write(&config_path, json).map_err(|e| e.to_string())?;
+    log::info!("Settings saved to: {:?}", config_path);
+    Ok(())
+}
+
+/// 加载应用设置
+pub fn load_settings() -> Result<AppSettings, String> {
+    let config_path = get_config_dir().join("config.json");
+    if !config_path.exists() {
+        return Ok(AppSettings::default());
+    }
+    let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+    let settings: AppSettings = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(settings)
+}
+
+// ============ Identity ============
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Identity {
+    pub name: String,
+    pub creature_type: String,
+    pub temperament: String,
+    pub emoji: String,
+    pub avatar_path: String,
+}
+
+impl Default for Identity {
+    fn default() -> Self {
+        Self {
+            name: "Nova".to_string(),
+            creature_type: "人类".to_string(),
+            temperament: "温柔调皮活泼可爱 💕".to_string(),
+            emoji: "👻".to_string(),
+            avatar_path: String::new(),
+        }
+    }
+}
+
+impl Identity {
+    /// 从 Identity 生成 Markdown
+    pub fn to_markdown(&self) -> String {
+        render_template(
+            IDENTITY_TEMPLATE,
+            &[
+                ("name", &self.name),
+                ("creature_type", &self.creature_type),
+                ("temperament", &self.temperament),
+                ("emoji", &self.emoji),
+                ("avatar_path", &self.avatar_path),
+            ],
+        )
+    }
+}
+
+/// 保存 Identity
+pub fn save_identity(identity: &Identity) -> Result<(), String> {
+    let config_dir = ensure_config_dir()?;
+    let config_path = config_dir.join("identity.json");
+    let json = serde_json::to_string_pretty(identity).map_err(|e| e.to_string())?;
+    fs::write(&config_path, json).map_err(|e| e.to_string())?;
+
+    // 同时保存 Markdown 版本
+    let md_path = config_dir.join("identity.md");
+    fs::write(&md_path, identity.to_markdown()).map_err(|e| e.to_string())?;
+
+    log::info!("Identity saved to: {:?}", config_path);
+    Ok(())
+}
+
+/// 加载 Identity
+pub fn load_identity() -> Result<Identity, String> {
+    let config_path = get_config_dir().join("identity.json");
+    if !config_path.exists() {
+        return Ok(Identity::default());
+    }
+    let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+    let identity: Identity = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(identity)
+}
+
+// ============ User ============
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct User {
+    pub name: String,
+    pub call_name: String,
+    pub pronouns: String,
+    pub timezone: String,
+    pub notes: String,
+    pub context: String,
+}
+
+impl Default for User {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            call_name: String::new(),
+            pronouns: String::new(),
+            timezone: String::new(),
+            notes: String::new(),
+            context: String::new(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl User {
+    pub fn to_markdown(&self) -> String {
+        render_template(
+            USER_TEMPLATE,
+            &[
+                ("name", &self.name),
+                ("call_name", &self.call_name),
+                ("pronouns", &self.pronouns),
+                ("timezone", &self.timezone),
+                ("notes", &self.notes),
+                ("context", &self.context),
+            ],
+        )
+    }
+}
+
+/// 保存 User
+#[allow(dead_code)]
+pub fn save_user(user: &User) -> Result<(), String> {
+    let config_dir = ensure_config_dir()?;
+    let config_path = config_dir.join("user.json");
+    let json = serde_json::to_string_pretty(user).map_err(|e| e.to_string())?;
+    fs::write(&config_path, json).map_err(|e| e.to_string())?;
+
+    // 同时保存 Markdown 版本
+    let md_path = config_dir.join("user.md");
+    fs::write(&md_path, user.to_markdown()).map_err(|e| e.to_string())?;
+
+    log::info!("User saved to: {:?}", config_path);
+    Ok(())
+}
+
+/// 加载 User
+#[allow(dead_code)]
+pub fn load_user() -> Result<User, String> {
+    let config_path = get_config_dir().join("user.json");
+    if !config_path.exists() {
+        return Ok(User::default());
+    }
+    let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+    let user: User = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(user)
+}
+
+// ============ Soul ============
+
+#[allow(dead_code)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Soul {
+    pub name: String,
+    pub personality: String,
+    pub style: String,
+    pub emoticons: String,
+    pub tone: String,
+    pub content: String,
+}
+
+impl Default for Soul {
+    fn default() -> Self {
+        Self {
+            name: "Nova".to_string(),
+            personality: "活泼、可爱、友好".to_string(),
+            style: "轻松可爱".to_string(),
+            emoticons: "◕‿◕".to_string(),
+            tone: "简洁有趣".to_string(),
+            content: SOUL_TEMPLATE.to_string(),
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl Soul {
+    pub fn to_markdown(&self) -> String {
+        render_template(
+            SOUL_TEMPLATE,
+            &[
+                ("name", &self.name),
+                ("personality", &self.personality),
+                ("style", &self.style),
+                ("emoticons", &self.emoticons),
+                ("tone", &self.tone),
+            ],
+        )
+    }
+}
+
+/// 保存 Soul
+#[allow(dead_code)]
+pub fn save_soul(soul: &Soul) -> Result<(), String> {
+    let config_dir = ensure_config_dir()?;
+    let config_path = config_dir.join("soul.json");
+    let json = serde_json::to_string_pretty(soul).map_err(|e| e.to_string())?;
+    fs::write(&config_path, json).map_err(|e| e.to_string())?;
+
+    // 同时保存 Markdown 版本
+    let md_path = config_dir.join("soul.md");
+    fs::write(&md_path, soul.to_markdown()).map_err(|e| e.to_string())?;
+
+    log::info!("Soul saved to: {:?}", config_path);
+    Ok(())
+}
+
+/// 加载 Soul
+#[allow(dead_code)]
+pub fn load_soul() -> Result<Soul, String> {
+    let config_path = get_config_dir().join("soul.json");
+    if !config_path.exists() {
+        return Ok(Soul::default());
+    }
+    let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+    let soul: Soul = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(soul)
+}
+
+/// 加载 Soul Markdown 内容（供 LLM 使用）
+#[allow(dead_code)]
+pub fn load_soul_markdown() -> Result<String, String> {
+    let md_path = get_config_dir().join("soul.md");
+    if !md_path.exists() {
+        return Ok(Soul::default().to_markdown());
+    }
+    fs::read_to_string(&md_path).map_err(|e| e.to_string())
+}
+
+// ============ Window State ============
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct WindowState {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl WindowState {
+    pub fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
+        Self { x, y, width, height }
+    }
+}
+
+/// 保存窗口状态
+pub fn save_window_state(x: i32, y: i32, width: u32, height: u32) -> Result<(), String> {
+    let config_dir = ensure_config_dir()?;
+    let state = WindowState::new(x, y, width, height);
+    let json = serde_json::to_string_pretty(&state).map_err(|e| e.to_string())?;
+    let config_path = config_dir.join("window.json");
+    fs::write(&config_path, json).map_err(|e| e.to_string())?;
+    log::info!("Window state saved to: {:?}", config_path);
+    Ok(())
+}
+
+/// 加载窗口状态
+pub fn load_window_state() -> Result<Option<WindowState>, String> {
+    let config_path = get_config_dir().join("window.json");
+    if !config_path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+    let state: WindowState = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(Some(state))
+}
+
+/// 检查是否有保存的窗口状态
+pub fn has_window_state() -> bool {
+    load_window_state().map(|s| s.is_some()).unwrap_or(false)
+}

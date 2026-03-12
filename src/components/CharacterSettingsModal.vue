@@ -1,6 +1,6 @@
 <script setup lang="ts">
 	import { ref, reactive, onMounted, onUnmounted, watch, computed } from "vue"
-	import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
+	import { getCurrentWindow } from "@tauri-apps/api/window"
 	import { invoke } from "@tauri-apps/api/core"
 	import { useSettings, type AppSettings } from "../composables"
 
@@ -186,11 +186,10 @@
 			soulOriginalContent.value = soul
 			soulEditable.value = false
 
-			// 加载当前窗口尺寸
-			const win = await getCurrentWindow()
-			const size = await win.outerSize()
-			localSettings.windowWidth = size.width
-			localSettings.windowHeight = size.height
+			// 从后端获取当前窗口尺寸
+			const windowSize = await invoke<{ width: number; height: number }>("get_window_size")
+			localSettings.windowWidth = windowSize.width
+			localSettings.windowHeight = windowSize.height
 
 			// 加载其他应用设置
 			Object.assign(localSettings, settings.value)
@@ -244,19 +243,26 @@
 				await invoke("save_soul", { content: soulContent.value })
 			}
 
-			// 保存应用设置（窗口大小由 plugin 自动保存）
+			// 保存应用设置到后端
 			Object.assign(settings.value, localSettings)
 			await saveSettings()
 			await updateLlmConfig()
 
-			// 确保最终窗口大小正确（保存时再次应用）
-			const win = await getCurrentWindow()
-			await win.setSize(
-				new LogicalSize(
-					Math.max(300, localSettings.windowWidth),
-					Math.max(400, localSettings.windowHeight),
-				),
-			)
+			// 保存窗口尺寸到后端
+			await invoke("save_setting", {
+				key: "window_width",
+				value: String(localSettings.windowWidth),
+			})
+			await invoke("save_setting", {
+				key: "window_height",
+				value: String(localSettings.windowHeight),
+			})
+
+			// 应用窗口大小
+			await invoke("set_window_size", {
+				width: Math.max(300, localSettings.windowWidth),
+				height: Math.max(400, localSettings.windowHeight),
+			})
 
 			emit("save", localSettings)
 			emit("close")

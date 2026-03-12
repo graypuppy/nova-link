@@ -191,6 +191,11 @@
 		// 监听窗口显示事件，从托盘恢复时重新加载 Live2D
 		await listen("window-shown", async () => {
 			console.log("[App] Window shown, checking Live2D...")
+			// 如果已经有模型，不需要重新加载
+			if (hasModel.value) {
+				console.log("[App] Model already loaded, skipping...")
+				return
+			}
 			// 等待 DOM 准备好
 			await nextTick()
 			setTimeout(async () => {
