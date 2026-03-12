@@ -11,6 +11,7 @@
 	},
 	"app": {
 		"withGlobalTauri": false,
+		"macOSPrivateApi": true,
 		"windows": [
 			{
 				"title": "Nova Link",
@@ -22,7 +23,7 @@
 				"transparent": true,
 				"alwaysOnTop": true,
 				"skipTaskbar": false,
-				"shadow": true,
+				"shadow": false,
 				"center": true
 			}
 		],

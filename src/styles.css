@@ -44,7 +44,6 @@ body {
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	background: var(--bg-glass-dark);
 	backdrop-filter: blur(12px);
 	-webkit-backdrop-filter: blur(12px);
 	overflow: hidden;

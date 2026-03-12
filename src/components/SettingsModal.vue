@@ -21,7 +21,44 @@
 	const soulContent = ref("")
 	const soulLoading = ref(false)
 	const soulSaving = ref(false)
+	const soulSyncing = ref(false)
 	const showSoulEditor = ref(false)
+
+	// 同步人格到 OpenClaw 目录
+	async function syncSoulToOpenclaw() {
+		// 先保存当前内容
+		if (!soulContent.value) {
+			console.warn("Soul content is empty")
+			return
+		}
+
+		const confirmed = confirm(
+			"确定要将人格设定同步到 OpenClaw 工作目录吗？\n\n这将覆盖 .openclaw/workspace/SOUL.md 文件。",
+		)
+		if (!confirmed) return
+
+		soulSyncing.value = true
+		try {
+			// 先保存当前编辑的内容
+			await invoke("save_soul", { content: soulContent.value })
+			// 然后同步到 OpenClaw 目录
+			const path = await invoke<string>("sync_soul_to_openclaw", {
+				content: soulContent.value,
+			})
+			alert(`人格已同步到：\n${path}`)
+			console.log("Soul synced to OpenClaw:", path)
+		} catch (e) {
+			console.error("Failed to sync soul:", e)
+			alert("同步失败：" + e)
+		} finally {
+			soulSyncing.value = false
+		}
+	}
+
+	// 获取人格提示词信息（用于 LLM 模式）
+	function getLlmPromptInfo() {
+		return "在 LLM 模式下，人格设定已作为系统提示词自动合并到每次对话中"
+	}
 
 	// 加载 soul
 	async function loadSoul() {
@@ -371,6 +408,19 @@
 						>
 							编辑人格
 						</button>
+						<!-- 同步按钮 - 根据聊天模式显示不同内容 -->
+						<button
+							v-if="chatProvider === 'openclaw'"
+							id="setting-soul-sync"
+							@click="syncSoulToOpenclaw"
+							:disabled="soulSyncing"
+							class="sync-btn"
+						>
+							{{ soulSyncing ? "同步中..." : "同步到 OpenClaw" }}
+						</button>
+						<span v-else class="llm-prompt-info">
+							{{ getLlmPromptInfo() }}
+						</span>
 					</div>
 					<div v-else class="soul-editor">
 						<div class="soul-toolbar">
@@ -378,6 +428,15 @@
 								{{ soulLoading ? "加载中..." : "重新加载" }}
 							</button>
 							<button @click="resetSoul">重置默认</button>
+							<!-- 编辑模式下的同步按钮 -->
+							<button
+								v-if="chatProvider === 'openclaw'"
+								@click="syncSoulToOpenclaw"
+								:disabled="soulSyncing"
+								class="sync-btn"
+							>
+								{{ soulSyncing ? "同步中..." : "同步到 OpenClaw" }}
+							</button>
 						</div>
 						<textarea
 							v-model="soulContent"
@@ -616,6 +675,13 @@
 		margin-bottom: 12px;
 	}
 
+	.soul-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		align-items: center;
+	}
+
 	.soul-actions button {
 		padding: 8px 16px;
 		border: 1px solid rgba(56, 189, 248, 0.5);
@@ -629,6 +695,31 @@
 
 	.soul-actions button:hover {
 		background: rgba(56, 189, 248, 0.2);
+	}
+
+	.soul-actions button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* 同步按钮样式 */
+	.soul-actions .sync-btn {
+		border-color: rgba(34, 197, 94, 0.5);
+		background: rgba(34, 197, 94, 0.1);
+		color: #22c55e;
+	}
+
+	.soul-actions .sync-btn:hover {
+		background: rgba(34, 197, 94, 0.2);
+	}
+
+	/* LLM 模式提示信息 */
+	.llm-prompt-info {
+		font-size: 12px;
+		color: #94a3b8;
+		padding: 8px 12px;
+		background: rgba(255, 255, 255, 0.05);
+		border-radius: 8px;
 	}
 
 	.soul-editor {
@@ -665,6 +756,16 @@
 	.soul-toolbar button.primary {
 		background: linear-gradient(135deg, #22d3ee, #3b82f6);
 		color: white;
+	}
+
+	.soul-toolbar button.sync-btn {
+		border-color: rgba(34, 197, 94, 0.5);
+		background: rgba(34, 197, 94, 0.1);
+		color: #22c55e;
+	}
+
+	.soul-toolbar button.sync-btn:hover {
+		background: rgba(34, 197, 94, 0.2);
 	}
 
 	.soul-textarea {

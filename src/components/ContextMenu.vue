@@ -1,11 +1,43 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue"
+import { onMounted, onUnmounted, ref, watch, computed } from "vue"
 
 const props = defineProps<{
   visible: boolean
   x: number
   y: number
 }>()
+
+// 菜单元件的引用（用于获取实际尺寸）
+const menuRef = ref<HTMLElement | null>(null)
+
+// 计算菜单位置（避免超出边界）
+const menuStyle = computed(() => {
+  let left = props.x
+  let top = props.y
+
+  // 获取窗口尺寸
+  const windowWidth = window.innerWidth
+  const windowHeight = window.innerHeight
+
+  // 获取菜单实际尺寸（如果已渲染）
+  const menuWidth = menuRef.value?.offsetWidth || 180
+  const menuHeight = menuRef.value?.offsetHeight || 400
+
+  // 如果右边空间不足，显示在左边
+  if (left + menuWidth > windowWidth - 10) {
+    left = Math.max(10, windowWidth - menuWidth - 10)
+  }
+
+  // 如果底部空间不足，显示在上方
+  if (top + menuHeight > windowHeight - 10) {
+    top = Math.max(10, windowHeight - menuHeight - 10)
+  }
+
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+  }
+})
 
 const emit = defineEmits<{
   close: []
@@ -117,10 +149,28 @@ function handleDocumentClick() {
   emit("close")
 }
 
+// 监听 visible 变化，点击外部时关闭菜单
+watch(
+  () => props.visible,
+  (newVal) => {
+    if (newVal) {
+      // 显示菜单时，延迟添加点击监听器，确保当前点击不触发关闭
+      setTimeout(() => {
+        document.addEventListener("click", handleDocumentClick, { once: true })
+      }, 0)
+    } else {
+      // 隐藏菜单时，移除点击监听器
+      document.removeEventListener("click", handleDocumentClick)
+    }
+  },
+)
+
 onMounted(() => {
-  setTimeout(() => {
-    document.addEventListener("click", handleDocumentClick, { once: true })
-  }, 0)
+  if (props.visible) {
+    setTimeout(() => {
+      document.addEventListener("click", handleDocumentClick, { once: true })
+    }, 0)
+  }
 })
 
 onUnmounted(() => {
@@ -133,8 +183,9 @@ onUnmounted(() => {
     <div
       v-if="visible"
       id="context-menu"
+      ref="menuRef"
       class="context-menu"
-      :style="{ left: `${x}px`, top: `${y}px` }"
+      :style="menuStyle"
     >
       <div
         class="menu-item"

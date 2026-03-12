@@ -12,7 +12,7 @@
 		TitleBar,
 		Live2DContainer,
 		ChatPanel,
-		SettingsModal,
+		CharacterSettingsModal,
 		ContextMenu,
 	} from "./components"
 
@@ -439,6 +439,22 @@
 	})
 
 	onMounted(() => {
+		// 多层透明保障机制 - 参考技术文档
+		// 确保透明背景在 Vue 挂载后正确设置
+		setTimeout(() => {
+			document.body.style.background = "transparent"
+			document.documentElement.style.background = "transparent"
+			const app = document.getElementById("app")
+			if (app) {
+				app.style.background = "transparent"
+			}
+			// 同时设置 canvas 透明
+			const canvas = document.getElementById("live2d-canvas")
+			if (canvas) {
+				canvas.style.background = "transparent"
+			}
+		}, 100)
+
 		init()
 	})
 </script>
@@ -457,7 +473,7 @@
 			@send="handleSendMessage"
 			@toggle="toggleChat"
 		/>
-		<SettingsModal
+		<CharacterSettingsModal
 			:visible="showSettings"
 			@close="closeSettings"
 			@save="handleSettingsSave"

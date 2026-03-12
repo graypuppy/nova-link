@@ -1,0 +1,1124 @@
+<script setup lang="ts">
+	import { ref, reactive, onMounted, watch } from "vue"
+	import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
+	import { invoke } from "@tauri-apps/api/core"
+	import { useSettings, type AppSettings } from "../composables"
+
+	const props = defineProps<{
+		visible: boolean
+	}>()
+
+	const emit = defineEmits<{
+		close: []
+		save: [settings: AppSettings]
+	}>()
+
+	const { settings, saveSettings, updateLlmConfig } = useSettings()
+
+	// ============ 状态定义 ============
+
+	// 加载状态
+	const loading = ref(false)
+	const saving = ref(false)
+
+	// 手风琴折叠状态
+	const activeSections = ref<string[]>(["identity"])
+
+	// 身份设置
+	const identity = reactive({
+		name: "",
+		creatureType: "",
+		temperament: "",
+		emoji: "",
+		avatarPath: "",
+	})
+
+	// Soul 设置
+	const soulContent = ref("")
+	const soulEditable = ref(false)
+	const soulOriginalContent = ref("")
+
+	// 同步状态
+	const syncing = ref(false)
+
+	// 应用设置
+	const localSettings = reactive<AppSettings>({ ...settings.value })
+
+	// ============ 数据加载 ============
+
+	async function loadAllData() {
+		loading.value = true
+		try {
+			// 加载 Identity（优先从文件读取）
+			const identityData = await invoke<any>("load_identity_from_file")
+			Object.assign(identity, {
+				name: identityData.name || "",
+				creatureType: identityData.creature_type || "",
+				temperament: identityData.temperament || "",
+				emoji: identityData.emoji || "",
+				avatarPath: identityData.avatar_path || "",
+			})
+
+			// 加载 Soul（从 OpenClaw 目录读取）
+			const soul = await invoke<string>("load_soul_from_file")
+			soulContent.value = soul
+			soulOriginalContent.value = soul
+			soulEditable.value = false
+
+			// 加载应用设置
+			Object.assign(localSettings, settings.value)
+		} catch (e) {
+			console.error("Failed to load data:", e)
+		} finally {
+			loading.value = false
+		}
+	}
+
+	// ============ 保存函数 ============
+
+	async function saveAll() {
+		saving.value = true
+		try {
+			// 保存 Identity 到 SQLite
+			await invoke("save_identity", {
+				name: identity.name,
+				creatureType: identity.creatureType,
+				temperament: identity.temperament,
+				emoji: identity.emoji,
+				avatarPath: identity.avatarPath,
+			})
+
+			// 保存 Identity 到文件
+			await invoke("save_identity_to_file", {
+				name: identity.name,
+				creatureType: identity.creatureType,
+				temperament: identity.temperament,
+				emoji: identity.emoji,
+				avatarPath: identity.avatarPath,
+			})
+
+			// 保存 Soul（如果有修改）
+			if (soulEditable.value) {
+				await invoke("save_soul", { content: soulContent.value })
+			}
+
+			// 保存应用设置
+			Object.assign(settings.value, localSettings)
+			await saveSettings()
+			await updateLlmConfig()
+
+			// 保存窗口位置
+			const win = await getCurrentWindow()
+			const position = await win.outerPosition()
+			const size = await win.outerSize()
+			await invoke("save_window_position", {
+				x: position.x,
+				y: position.y,
+				width: size.width,
+				height: size.height,
+			})
+			await win.setSize(
+				new LogicalSize(localSettings.windowWidth, localSettings.windowHeight),
+			)
+
+			emit("save", localSettings)
+			emit("close")
+		} catch (e) {
+			console.error("Failed to save:", e)
+			alert("保存失败：" + e)
+		} finally {
+			saving.value = false
+		}
+	}
+
+	// ============ 同步功能 ============
+
+	async function syncToOpenClaw() {
+		const confirmed = confirm(
+			"确定要将所有设置同步到 OpenClaw 工作目录吗？\n\n这将覆盖 ~/.openclaw/workspace/ 下的 SOUL.md 和 IDENTITY.md 文件。",
+		)
+		if (!confirmed) return
+
+		syncing.value = true
+		try {
+			// 同步 Soul
+			const soulToSave = soulEditable.value
+				? soulContent.value
+				: soulOriginalContent.value
+			await invoke("save_soul_to_file", { content: soulToSave })
+
+			// 同步 Identity
+			await invoke("save_identity_to_file", {
+				name: identity.name,
+				creatureType: identity.creatureType,
+				temperament: identity.temperament,
+				emoji: identity.emoji,
+				avatarPath: identity.avatarPath,
+			})
+
+			alert("已同步到 OpenClaw 工作目录")
+		} catch (e) {
+			console.error("Sync failed:", e)
+			alert("同步失败：" + e)
+		} finally {
+			syncing.value = false
+		}
+	}
+
+	// ============ Soul 编辑功能 ============
+
+	function enableSoulEdit() {
+		soulEditable.value = true
+	}
+
+	function cancelSoulEdit() {
+		soulContent.value = soulOriginalContent.value
+		soulEditable.value = false
+	}
+
+	// ============ 手风琴控制 ============
+
+	function toggleSection(section: string) {
+		const index = activeSections.value.indexOf(section)
+		if (index > -1) {
+			activeSections.value.splice(index, 1)
+		} else {
+			activeSections.value.push(section)
+		}
+	}
+
+	function isSectionActive(section: string): boolean {
+		return activeSections.value.includes(section)
+	}
+
+	// ============ 生命周期 ============
+
+	watch(
+		() => props.visible,
+		(visible) => {
+			if (visible) {
+				loadAllData()
+			}
+		},
+	)
+
+	onMounted(() => {
+		if (props.visible) {
+			loadAllData()
+		}
+	})
+</script>
+
+<template>
+	<Teleport to="body">
+		<div
+			v-if="visible"
+			class="modal-overlay"
+			@click.self="emit('close')"
+		>
+			<div class="modal-content">
+				<!-- 加载状态 -->
+				<div
+					v-if="loading"
+					class="loading-overlay"
+				>
+					<div class="loading-spinner"></div>
+					<p>加载中...</p>
+				</div>
+
+				<!-- 主要内容 -->
+				<template v-else>
+					<!-- 标题栏 -->
+					<div class="modal-header">
+						<h2>角色设置</h2>
+						<button
+							class="close-btn"
+							@click="emit('close')"
+						>
+							×
+						</button>
+					</div>
+
+					<!-- 手风琴内容 -->
+					<div class="accordion">
+						<!-- 身份设置 -->
+						<div class="accordion-item">
+							<div
+								class="accordion-header"
+								@click="toggleSection('identity')"
+							>
+								<span class="accordion-icon">👤</span>
+								<span class="accordion-title">身份设置</span>
+								<span
+									class="accordion-arrow"
+									:class="{ active: isSectionActive('identity') }"
+									>▼</span
+								>
+							</div>
+							<div
+								class="accordion-content"
+								:class="{ active: isSectionActive('identity') }"
+							>
+								<div class="form-grid">
+									<div class="form-group">
+										<label>名称</label>
+										<input
+											v-model="identity.name"
+											type="text"
+											placeholder="选一个你喜欢的名字"
+										/>
+									</div>
+									<div class="form-group">
+										<label>生物类型</label>
+										<input
+											v-model="identity.creatureType"
+											type="text"
+											placeholder="AI？机器人？使魔？"
+										/>
+									</div>
+									<div class="form-group">
+										<label>气质</label>
+										<input
+											v-model="identity.temperament"
+											type="text"
+											placeholder="犀利？温暖？混乱？沉稳？"
+										/>
+									</div>
+									<div class="form-group">
+										<label>表情符号</label>
+										<input
+											v-model="identity.emoji"
+											type="text"
+											placeholder="你的标志"
+											maxlength="10"
+										/>
+									</div>
+									<div class="form-group full-width">
+										<label>头像路径</label>
+										<input
+											v-model="identity.avatarPath"
+											type="text"
+											placeholder="工作区相对路径、http(s) URL 或 data URI"
+										/>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- 灵魂设置 -->
+						<div class="accordion-item">
+							<div
+								class="accordion-header"
+								@click="toggleSection('soul')"
+							>
+								<span class="accordion-icon">✨</span>
+								<span class="accordion-title">灵魂设置</span>
+								<span
+									class="accordion-arrow"
+									:class="{ active: isSectionActive('soul') }"
+									>▼</span
+								>
+							</div>
+							<div
+								class="accordion-content"
+								:class="{ active: isSectionActive('soul') }"
+							>
+								<!-- 只读/编辑模式切换 -->
+								<div class="soul-controls">
+									<button
+										v-if="!soulEditable"
+										class="edit-btn"
+										@click="enableSoulEdit"
+									>
+										编辑灵魂
+									</button>
+									<template v-else>
+										<button
+											class="cancel-btn"
+											@click="cancelSoulEdit"
+										>
+											取消
+										</button>
+										<span class="soul-hint">
+											情绪标签 [:emotion:xxx:] 已被隐藏
+										</span>
+									</template>
+								</div>
+
+								<!-- Soul 编辑器 -->
+								<textarea
+									v-model="soulContent"
+									class="soul-textarea"
+									:readonly="!soulEditable"
+									:placeholder="
+										soulEditable
+											? '在此编辑灵魂设定...'
+											: '点击上方编辑按钮修改'
+									"
+									rows="20"
+								></textarea>
+							</div>
+						</div>
+
+						<!-- 应用设置 -->
+						<div class="accordion-item">
+							<div
+								class="accordion-header"
+								@click="toggleSection('app')"
+							>
+								<span class="accordion-icon">⚙️</span>
+								<span class="accordion-title">应用设置</span>
+								<span
+									class="accordion-arrow"
+									:class="{ active: isSectionActive('app') }"
+									>▼</span
+								>
+							</div>
+							<div
+								class="accordion-content"
+								:class="{ active: isSectionActive('app') }"
+							>
+								<div class="form-grid">
+									<div class="form-group">
+										<label>模型路径</label>
+										<input
+											id="setting-model-path"
+											type="text"
+											v-model="localSettings.modelPath"
+										/>
+									</div>
+									<div class="form-group">
+										<label>窗口宽度</label>
+										<input
+											id="setting-width"
+											type="number"
+											v-model="localSettings.windowWidth"
+										/>
+									</div>
+									<div class="form-group">
+										<label>窗口高度</label>
+										<input
+											id="setting-height"
+											type="number"
+											v-model="localSettings.windowHeight"
+										/>
+									</div>
+									<div class="form-group">
+										<label>聊天服务</label>
+										<select v-model="localSettings.chatProvider">
+											<option value="openclaw">OpenClaw Gateway</option>
+											<option value="llm">LLM (大模型)</option>
+										</select>
+									</div>
+									<!-- OpenClaw 模式下显示 WebSocket 设置 -->
+									<template v-if="localSettings.chatProvider === 'openclaw'">
+										<div class="form-group">
+											<label>WebSocket 地址</label>
+											<input
+												id="setting-ws-url"
+												type="text"
+												v-model="localSettings.wsUrl"
+												placeholder="ws://127.0.0.1:18789"
+											/>
+										</div>
+										<div class="form-group">
+											<label>WebSocket Token (可选)</label>
+											<input
+												id="setting-ws-token"
+												type="password"
+												v-model="localSettings.wsToken"
+												placeholder="连接 OpenClaw 的认证令牌"
+											/>
+										</div>
+									</template>
+									<div class="form-group full-width">
+										<label>背景颜色</label>
+										<div class="color-picker-row">
+											<input
+												id="setting-bg-color"
+												type="color"
+												v-model="localSettings.bgColor"
+											/>
+											<span class="color-value">{{
+												localSettings.bgColor
+											}}</span>
+											<label class="checkbox-label">
+												<input
+													id="setting-bg-blur"
+													type="checkbox"
+													v-model="localSettings.bgBlur"
+												/>
+												毛玻璃效果
+											</label>
+										</div>
+									</div>
+									<div class="form-group full-width">
+										<label>背景透明度 ({{ localSettings.bgOpacity }})</label>
+										<input
+											id="setting-bg-opacity"
+											type="range"
+											min="0"
+											max="1"
+											step="0.05"
+											v-model="localSettings.bgOpacity"
+										/>
+									</div>
+								</div>
+
+								<!-- LLM 设置 -->
+								<div
+									v-if="localSettings.chatProvider === 'llm'"
+									class="llm-settings"
+								>
+									<h4>大模型聊天设置</h4>
+									<div class="form-grid">
+										<div class="form-group">
+											<label>API 提供商</label>
+											<select v-model="localSettings.llmProvider">
+												<option value="none">不使用</option>
+												<option value="minimax">MiniMax</option>
+												<option value="openai">OpenAI 兼容</option>
+											</select>
+										</div>
+										<div class="form-group">
+											<label>API Key</label>
+											<input
+												id="setting-llm-api-key"
+												type="password"
+												v-model="localSettings.llmApiKey"
+											/>
+										</div>
+										<div class="form-group full-width">
+											<label>API 地址</label>
+											<input
+												id="setting-llm-api-url"
+												type="text"
+												v-model="localSettings.llmApiUrl"
+												placeholder="https://api.minimax.chat/v1/text/chatcompletion_v2"
+											/>
+										</div>
+										<div class="form-group">
+											<label>模型名称</label>
+											<input
+												id="setting-llm-model"
+												type="text"
+												v-model="localSettings.llmModel"
+												placeholder="abab6.5s-chat"
+											/>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- 底部操作栏 -->
+					<div class="modal-footer">
+						<button
+							class="sync-btn"
+							@click="syncToOpenClaw"
+							:disabled="syncing"
+						>
+							{{ syncing ? "同步中..." : "同步到 OpenClaw" }}
+						</button>
+						<div class="footer-right">
+							<button
+								class="cancel-btn"
+								@click="emit('close')"
+							>
+								取消
+							</button>
+							<button
+								class="save-btn"
+								@click="saveAll"
+								:disabled="saving"
+							>
+								{{ saving ? "保存中..." : "保存" }}
+							</button>
+						</div>
+					</div>
+				</template>
+			</div>
+		</div>
+	</Teleport>
+</template>
+
+<style scoped>
+	/* 遮罩层 */
+	.modal-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 2000;
+		backdrop-filter: blur(4px);
+	}
+
+	/* 主内容区 */
+	.modal-content {
+		background: linear-gradient(
+			145deg,
+			rgba(30, 41, 59, 0.95),
+			rgba(15, 23, 42, 0.98)
+		);
+		border-radius: 24px;
+		padding: 0;
+		width: 90vw;
+		height: 90vh;
+		min-width: 300px;
+		min-height: 600px;
+		max-width: 800px;
+		max-height: 1200px;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		box-shadow:
+			0 25px 50px -12px rgba(0, 0, 0, 0.5),
+			0 0 0 1px rgba(255, 255, 255, 0.1);
+	}
+
+	/* 响应式调整 */
+	@media (max-width: 600px) {
+		.modal-content {
+			width: 95vw;
+			height: 95vh;
+			border-radius: 16px;
+		}
+	}
+
+	@media (max-height: 700px) {
+		.modal-content {
+			height: 95vh;
+			max-height: none;
+		}
+	}
+
+	/* 加载状态 */
+	.loading-overlay {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 16px;
+		color: #94a3b8;
+	}
+
+	.loading-spinner {
+		width: 40px;
+		height: 40px;
+		border: 3px solid rgba(56, 189, 248, 0.2);
+		border-top-color: #22d3ee;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	/* 标题栏 */
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 16px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+		background: rgba(0, 0, 0, 0.2);
+	}
+
+	@media (min-width: 600px) {
+		.modal-header {
+			padding: 20px 24px;
+		}
+	}
+
+	.modal-header h2 {
+		margin: 0;
+		font-size: 16px;
+		font-weight: 600;
+		color: #f1f5f9;
+		background: linear-gradient(135deg, #22d3ee, #818cf8);
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+
+	@media (min-width: 600px) {
+		.modal-header h2 {
+			font-size: 20px;
+		}
+	}
+
+	.close-btn {
+		width: 32px;
+		height: 32px;
+		font-size: 20px;
+		border: none;
+		border-radius: 50%;
+		background: rgba(255, 255, 255, 0.1);
+		color: #94a3b8;
+		font-size: 24px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+	}
+
+	@media (min-width: 600px) {
+		.close-btn {
+			width: 36px;
+			height: 36px;
+			border-radius: 50%;
+			background: rgba(255, 255, 255, 0.1);
+			color: #94a3b8;
+			font-size: 24px;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			transition: all 0.2s;
+		}
+	}
+
+	.close-btn:hover {
+		background: rgba(239, 68, 68, 0.2);
+		color: #ef4444;
+	}
+
+	/* 手风琴 */
+	.accordion {
+		flex: 1;
+		overflow-y: auto;
+		padding: 12px 16px;
+	}
+
+	@media (min-width: 600px) {
+		.accordion {
+			padding: 16px 24px;
+		}
+	}
+
+	.accordion-item {
+		margin-bottom: 8px;
+		border-radius: 12px;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.05);
+		overflow: hidden;
+		transition: all 0.3s ease;
+	}
+
+	.accordion-item:hover {
+		border-color: rgba(56, 189, 248, 0.2);
+	}
+
+	@media (min-width: 500px) {
+		.accordion-item {
+			margin-bottom: 12px;
+			border-radius: 16px;
+		}
+	}
+
+	.accordion-header {
+		display: flex;
+		align-items: center;
+		padding: 12px 14px;
+		cursor: pointer;
+		gap: 10px;
+		transition: background 0.2s;
+	}
+
+	.accordion-header:hover {
+		background: rgba(255, 255, 255, 0.03);
+	}
+
+	.accordion-icon {
+		font-size: 16px;
+	}
+
+	.accordion-title {
+		flex: 1;
+		font-size: 13px;
+		font-weight: 500;
+		color: #e2e8f0;
+	}
+
+	@media (min-width: 500px) {
+		.accordion-header {
+			padding: 16px 20px;
+			gap: 12px;
+		}
+
+		.accordion-icon {
+			font-size: 20px;
+		}
+
+		.accordion-title {
+			font-size: 15px;
+		}
+	}
+
+	.accordion-arrow {
+		font-size: 12px;
+		color: #64748b;
+		transition: transform 0.3s;
+	}
+
+	.accordion-arrow.active {
+		transform: rotate(180deg);
+	}
+
+	.accordion-content {
+		max-height: 0;
+		overflow: hidden;
+		transition:
+			max-height 0.3s ease,
+			padding 0.3s ease;
+	}
+
+	.accordion-content.active {
+		max-height: 2000px;
+		padding: 12px;
+	}
+
+	@media (min-width: 500px) {
+		.accordion-content.active {
+			padding: 20px;
+		}
+	}
+
+	/* 表单样式 */
+	.form-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 16px;
+	}
+
+	.form-group {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.form-group.full-width {
+		grid-column: span 2;
+	}
+
+	/* 响应式表单 - 根据窗体宽度调整列数 */
+	@media (max-width: 400px) {
+		.form-grid {
+			grid-template-columns: 1fr;
+			gap: 12px;
+		}
+
+		.form-group.full-width {
+			grid-column: span 1;
+		}
+	}
+
+	@media (min-width: 401px) and (max-width: 500px) {
+		.form-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	.form-group label {
+		font-size: 12px;
+		color: #94a3b8;
+		font-weight: 500;
+	}
+
+	.form-group input,
+	.form-group select {
+		padding: 8px 10px;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 8px;
+		background: rgba(0, 0, 0, 0.3);
+		color: #e2e8f0;
+		font-size: 13px;
+		transition: all 0.2s;
+	}
+
+	@media (min-width: 500px) {
+		.form-group input,
+		.form-group select {
+			padding: 10px 14px;
+			font-size: 14px;
+			border-radius: 10px;
+		}
+	}
+
+	.form-group input:focus,
+	.form-group select:focus {
+		outline: none;
+		border-color: rgba(56, 189, 248, 0.5);
+		background: rgba(0, 0, 0, 0.4);
+	}
+
+	.form-group input::placeholder {
+		color: #475569;
+	}
+
+	.form-group select {
+		cursor: pointer;
+	}
+
+	/* 颜色选择器 */
+	.color-picker-row {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.color-picker-row input[type="color"] {
+		width: 40px;
+		height: 40px;
+		padding: 2px;
+		border-radius: 8px;
+		cursor: pointer;
+	}
+
+	.color-value {
+		font-size: 13px;
+		color: #64748b;
+		font-family: monospace;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 13px;
+		color: #94a3b8;
+		cursor: pointer;
+		margin-left: auto;
+	}
+
+	.checkbox-label input {
+		width: 16px;
+		height: 16px;
+	}
+
+	/* Soul 编辑器 */
+	.soul-controls {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-bottom: 12px;
+	}
+
+	.soul-hint {
+		font-size: 12px;
+		color: #64748b;
+		font-style: italic;
+	}
+
+	.soul-textarea {
+		width: 100%;
+		height: 35vh;
+		min-height: 150px;
+		max-height: 60vh;
+		padding: 10px;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 10px;
+		background: rgba(0, 0, 0, 0.4);
+		color: #e2e8f0;
+		font-size: 12px;
+		font-family: "Consolas", "Monaco", monospace;
+		line-height: 1.5;
+		resize: vertical;
+		transition: all 0.2s;
+	}
+
+	@media (min-width: 500px) {
+		.soul-textarea {
+			height: 40vh;
+			min-height: 200px;
+			padding: 14px;
+			font-size: 13px;
+			border-radius: 12px;
+			line-height: 1.6;
+		}
+	}
+
+	.soul-textarea:focus {
+		outline: none;
+		border-color: rgba(56, 189, 248, 0.5);
+	}
+
+	.soul-textarea[readonly] {
+		background: rgba(0, 0, 0, 0.2);
+		cursor: default;
+	}
+
+	/* 编辑按钮 */
+	.edit-btn,
+	.cancel-btn {
+		padding: 8px 16px;
+		border: 1px solid rgba(56, 189, 248, 0.5);
+		border-radius: 8px;
+		background: rgba(56, 189, 248, 0.1);
+		color: #22d3ee;
+		font-size: 13px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.edit-btn:hover {
+		background: rgba(56, 189, 248, 0.2);
+	}
+
+	.cancel-btn {
+		border-color: rgba(239, 68, 68, 0.5);
+		background: rgba(239, 68, 68, 0.1);
+		color: #ef4444;
+	}
+
+	.cancel-btn:hover {
+		background: rgba(239, 68, 68, 0.2);
+	}
+
+	/* LLM 设置 */
+	.llm-settings {
+		margin-top: 20px;
+		padding-top: 20px;
+		border-top: 1px solid rgba(255, 255, 255, 0.1);
+	}
+
+	.llm-settings h4 {
+		margin: 0 0 16px;
+		font-size: 14px;
+		color: #94a3b8;
+	}
+
+	/* 底部操作栏 */
+	.modal-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 12px 16px;
+		border-top: 1px solid rgba(255, 255, 255, 0.1);
+		background: rgba(0, 0, 0, 0.2);
+		flex-wrap: wrap;
+		gap: 12px;
+	}
+
+	@media (min-width: 600px) {
+		.modal-footer {
+			padding: 16px 24px;
+		}
+	}
+
+	.footer-right {
+		display: flex;
+		gap: 8px;
+	}
+
+	@media (min-width: 600px) {
+		.footer-right {
+			gap: 12px;
+		}
+	}
+
+	.sync-btn {
+		padding: 8px 12px;
+		font-size: 13px;
+		border: 1px solid rgba(34, 197, 94, 0.5);
+		border-radius: 10px;
+	}
+
+	@media (min-width: 600px) {
+		.sync-btn {
+			padding: 10px 20px;
+			font-size: 14px;
+			background: rgba(34, 197, 94, 0.1);
+			color: #22c55e;
+			font-size: 14px;
+			cursor: pointer;
+			transition: all 0.2s;
+		}
+	}
+
+	.sync-btn:hover:not(:disabled) {
+		background: rgba(34, 197, 94, 0.2);
+	}
+
+	.sync-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.cancel-btn {
+		padding: 8px 16px;
+		font-size: 13px;
+		border: none;
+		border-radius: 10px;
+		background: rgba(255, 255, 255, 0.1);
+		color: #94a3b8;
+	}
+
+	@media (min-width: 600px) {
+		.cancel-btn {
+			padding: 10px 20px;
+			font-size: 14px;
+			cursor: pointer;
+			transition: all 0.2s;
+		}
+	}
+
+	.cancel-btn:hover {
+		background: rgba(255, 255, 255, 0.15);
+	}
+
+	.save-btn {
+		padding: 8px 16px;
+		font-size: 13px;
+		border: none;
+		border-radius: 10px;
+		background: linear-gradient(135deg, #22d3ee, #3b82f6);
+		color: white;
+	}
+
+	@media (min-width: 600px) {
+		.save-btn {
+			padding: 10px 24px;
+			font-size: 14px;
+			font-weight: 500;
+			cursor: pointer;
+			transition: all 0.2s;
+		}
+	}
+	.save-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #67e8f9, #60a5fa);
+		transform: translateY(-1px);
+	}
+
+	.save-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* 滚动条 */
+	.accordion::-webkit-scrollbar {
+		width: 8px;
+	}
+
+	.accordion::-webkit-scrollbar-track {
+		background: rgba(0, 0, 0, 0.2);
+		border-radius: 4px;
+	}
+
+	.accordion::-webkit-scrollbar-thumb {
+		background: rgba(255, 255, 255, 0.1);
+		border-radius: 4px;
+	}
+
+	.accordion::-webkit-scrollbar-thumb:hover {
+		background: rgba(255, 255, 255, 0.2);
+	}
+</style>

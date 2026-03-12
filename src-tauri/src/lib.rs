@@ -52,6 +52,28 @@ fn init_db() -> Result<Connection, rusqlite::Error> {
         [],
     )?;
 
+    // Identity 表：存储角色身份信息
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS identity (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            name TEXT DEFAULT '',
+            creature_type TEXT DEFAULT '',
+            temperament TEXT DEFAULT '',
+            emoji TEXT DEFAULT '',
+            avatar_path TEXT DEFAULT '',
+            created_at INTEGER,
+            updated_at INTEGER
+        )",
+        [],
+    )?;
+
+    // 确保有一条默认 identity 记录
+    conn.execute(
+        "INSERT OR IGNORE INTO identity (id, name, creature_type, temperament, emoji, avatar_path, created_at, updated_at)
+         VALUES (1, '', '', '', '', '', 0, 0)",
+        [],
+    )?;
+
     Ok(conn)
 }
 
@@ -181,6 +203,238 @@ fn load_soul() -> Result<String, String> {
     } else {
         Ok(DEFAULT_SOUL.to_string())
     }
+}
+
+/// 同步人格设定到 OpenClaw 工作目录
+/// 将 soul.md 内容复制到用户目录下的 .openclaw/workspace/SOUL.md
+#[tauri::command]
+fn sync_soul_to_openclaw(content: String) -> Result<String, String> {
+    // 获取用户主目录
+    let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
+    let openclaw_dir = home_dir.join(".openclaw").join("workspace");
+
+    // 创建目录（如果不存在）
+    std::fs::create_dir_all(&openclaw_dir).map_err(|e| e.to_string())?;
+
+    // 写入 SOUL.md 文件
+    let soul_path = openclaw_dir.join("SOUL.md");
+    std::fs::write(&soul_path, &content).map_err(|e| e.to_string())?;
+
+    info!("Soul synced to OpenClaw: {:?}", soul_path);
+    Ok(soul_path.to_string_lossy().to_string())
+}
+
+// ============ Identity 相关命令 ============
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Identity {
+    pub name: String,
+    pub creature_type: String,
+    pub temperament: String,
+    pub emoji: String,
+    pub avatar_path: String,
+}
+
+/// 获取 OpenClaw 工作目录路径
+fn get_openclaw_workspace_dir() -> Result<PathBuf, String> {
+    let home_dir = dirs::home_dir().ok_or("Cannot find home directory")?;
+    let workspace_dir = home_dir.join(".openclaw").join("workspace");
+    std::fs::create_dir_all(&workspace_dir).map_err(|e| e.to_string())?;
+    Ok(workspace_dir)
+}
+
+/// 从 SQLite 加载 Identity
+#[tauri::command]
+fn load_identity() -> Result<Identity, String> {
+    let conn = init_db().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT name, creature_type, temperament, emoji, avatar_path FROM identity WHERE id = 1")
+        .map_err(|e| e.to_string())?;
+
+    let result = stmt.query_row([], |row| {
+        Ok(Identity {
+            name: row.get(0)?,
+            creature_type: row.get(1)?,
+            temperament: row.get(2)?,
+            emoji: row.get(3)?,
+            avatar_path: row.get(4)?,
+        })
+    });
+
+    match result {
+        Ok(identity) => Ok(identity),
+        Err(_) => Ok(Identity {
+            name: String::new(),
+            creature_type: String::new(),
+            temperament: String::new(),
+            emoji: String::new(),
+            avatar_path: String::new(),
+        }),
+    }
+}
+
+/// 保存 Identity 到 SQLite
+#[tauri::command]
+fn save_identity(
+    name: String,
+    creature_type: String,
+    temperament: String,
+    emoji: String,
+    avatar_path: String,
+) -> Result<(), String> {
+    let conn = init_db().map_err(|e| e.to_string())?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs() as i64;
+
+    conn.execute(
+        "UPDATE identity SET name = ?1, creature_type = ?2, temperament = ?3, emoji = ?4, avatar_path = ?5, updated_at = ?6 WHERE id = 1",
+        rusqlite::params![name, creature_type, temperament, emoji, avatar_path, now],
+    )
+    .map_err(|e| e.to_string())?;
+
+    info!("Identity saved to SQLite");
+    Ok(())
+}
+
+/// 从 OpenClaw 工作目录加载 IDENTITY.md
+#[tauri::command]
+fn load_identity_from_file() -> Result<Identity, String> {
+    let workspace_dir = get_openclaw_workspace_dir()?;
+    let identity_path = workspace_dir.join("IDENTITY.md");
+
+    if !identity_path.exists() {
+        // 文件不存在，返回空的 Identity
+        return Ok(Identity {
+            name: String::new(),
+            creature_type: String::new(),
+            temperament: String::new(),
+            emoji: String::new(),
+            avatar_path: String::new(),
+        });
+    }
+
+    let content = std::fs::read_to_string(&identity_path).map_err(|e| e.to_string())?;
+
+    // 解析 IDENTITY.md 文件
+    // 格式：键名：值
+    let mut identity = Identity {
+        name: String::new(),
+        creature_type: String::new(),
+        temperament: String::new(),
+        emoji: String::new(),
+        avatar_path: String::new(),
+    };
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('：') {
+            let key = key.trim();
+            let value = value.trim();
+            match key {
+                "名称" => identity.name = value.to_string(),
+                "生物类型" => identity.creature_type = value.to_string(),
+                "气质" => identity.temperament = value.to_string(),
+                "表情符号" => identity.emoji = value.to_string(),
+                "头像" => identity.avatar_path = value.to_string(),
+                _ => {}
+            }
+        } else if let Some((key, value)) = line.split_once(':') {
+            let key = key.trim();
+            let value = value.trim();
+            match key {
+                "名称" | "Name" => identity.name = value.to_string(),
+                "生物类型" | "Creature Type" => identity.creature_type = value.to_string(),
+                "气质" | "Temperament" => identity.temperament = value.to_string(),
+                "表情符号" | "Emoji" => identity.emoji = value.to_string(),
+                "头像" | "Avatar" => identity.avatar_path = value.to_string(),
+                _ => {}
+            }
+        }
+    }
+
+    Ok(identity)
+}
+
+/// 保存 Identity 到 OpenClaw 工作目录的 IDENTITY.md
+#[tauri::command]
+fn save_identity_to_file(
+    name: String,
+    creature_type: String,
+    temperament: String,
+    emoji: String,
+    avatar_path: String,
+) -> Result<String, String> {
+    let workspace_dir = get_openclaw_workspace_dir()?;
+    let identity_path = workspace_dir.join("IDENTITY.md");
+
+    let content = format!(
+        r#"# 角色身份
+
+名称：{}
+生物类型：{}
+气质：{}
+表情符号：{}
+头像：{}
+"#,
+        name, creature_type, temperament, emoji, avatar_path
+    );
+
+    std::fs::write(&identity_path, content).map_err(|e| e.to_string())?;
+
+    info!("Identity saved to: {:?}", identity_path);
+    Ok(identity_path.to_string_lossy().to_string())
+}
+
+/// 从 OpenClaw 工作目录加载 SOUL.md（优先读取用户目录）
+#[tauri::command]
+fn load_soul_from_file() -> Result<String, String> {
+    let workspace_dir = get_openclaw_workspace_dir()?;
+    let soul_path = workspace_dir.join("SOUL.md");
+
+    if soul_path.exists() {
+        std::fs::read_to_string(&soul_path).map_err(|e| e.to_string())
+    } else {
+        // 如果文件不存在，返回默认 soul
+        Ok(DEFAULT_SOUL.to_string())
+    }
+}
+
+/// 保存 Soul 到 OpenClaw 工作目录
+#[tauri::command]
+fn save_soul_to_file(content: String) -> Result<String, String> {
+    let workspace_dir = get_openclaw_workspace_dir()?;
+    let soul_path = workspace_dir.join("SOUL.md");
+
+    std::fs::write(&soul_path, &content).map_err(|e| e.to_string())?;
+
+    info!("Soul saved to: {:?}", soul_path);
+    Ok(soul_path.to_string_lossy().to_string())
+}
+
+/// 同步 Soul 到 OpenClaw（从本地存储同步到用户目录）
+#[tauri::command]
+fn sync_soul_from_local() -> Result<String, String> {
+    // 读取本地 soul.md
+    let local_soul = get_soul_path()?;
+    let content = if local_soul.exists() {
+        std::fs::read_to_string(&local_soul).map_err(|e| e.to_string())?
+    } else {
+        DEFAULT_SOUL.to_string()
+    };
+
+    // 写入 OpenClaw 目录
+    let workspace_dir = get_openclaw_workspace_dir()?;
+    let soul_path = workspace_dir.join("SOUL.md");
+    std::fs::write(&soul_path, &content).map_err(|e| e.to_string())?;
+
+    info!("Soul synced from local to OpenClaw: {:?}", soul_path);
+    Ok(soul_path.to_string_lossy().to_string())
 }
 
 /// 从 soul.md 内容中提取系统指令
@@ -361,6 +615,14 @@ pub fn run() {
             run_gateway,
             save_soul,
             load_soul,
+            sync_soul_to_openclaw,
+            load_identity,
+            save_identity,
+            load_identity_from_file,
+            save_identity_to_file,
+            load_soul_from_file,
+            save_soul_to_file,
+            sync_soul_from_local,
         ])
         .setup(|app| {
             println!("[DEBUG] Nova Link setup starting...");
@@ -371,8 +633,16 @@ pub fn run() {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
                     // macOS 上启用透明需要设置 NSWindow 的相关属性
-                    // 通过 JavaScript 注入来确保透明生效
-                    if let Err(e) = window.eval("document.body.style.background = 'transparent'; document.documentElement.style.background = 'transparent';") {
+                    // 通过 JavaScript 注入来确保透明生效（多层防护机制）
+                    let js = r#"
+                        document.body.style.background = 'transparent';
+                        document.documentElement.style.background = 'transparent';
+                        var app = document.getElementById('app');
+                        if (app) { app.style.background = 'transparent'; }
+                        var canvas = document.getElementById('live2d-canvas');
+                        if (canvas) { canvas.style.background = 'transparent'; }
+                    "#;
+                    if let Err(e) = window.eval(js) {
                         println!("[WARN] Failed to set transparent style: {}", e);
                     }
                     println!("[DEBUG] macOS transparent window setup complete");
@@ -384,13 +654,41 @@ pub fn run() {
             {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
-                    if let Err(e) = window.eval("document.body.style.background = 'transparent'; document.documentElement.style.background = 'transparent';") {
+                    // Windows 透明窗口处理（多层防护机制）
+                    let js = r#"
+                        document.body.style.background = 'transparent';
+                        document.documentElement.style.background = 'transparent';
+                        var app = document.getElementById('app');
+                        if (app) { app.style.background = 'transparent'; }
+                        var canvas = document.getElementById('live2d-canvas');
+                        if (canvas) { canvas.style.background = 'transparent'; }
+                    "#;
+                    if let Err(e) = window.eval(js) {
                         println!("[WARN] Failed to set transparent style: {}", e);
                     }
                     println!("[DEBUG] Windows transparent window setup complete");
                 }
             }
 
+            // Linux 透明窗口处理
+            #[cfg(target_os = "linux")]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let js = r#"
+                        document.body.style.background = 'transparent';
+                        document.documentElement.style.background = 'transparent';
+                        var app = document.getElementById('app');
+                        if (app) { app.style.background = 'transparent'; }
+                        var canvas = document.getElementById('live2d-canvas');
+                        if (canvas) { canvas.style.background = 'transparent'; }
+                    "#;
+                    if let Err(e) = window.eval(js) {
+                        println!("[WARN] Failed to set transparent style: {}", e);
+                    }
+                    println!("[DEBUG] Linux transparent window setup complete");
+                }
+            }
             // 简单的窗口位置恢复
             if let Ok(Some(pos)) = get_window_position() {
                 if let Some(window) = app.get_webview_window("main") {
