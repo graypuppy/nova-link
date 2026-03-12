@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, State, WindowEvent,
+    State, WindowEvent,
 };
 
 mod command_runner;
@@ -224,15 +224,55 @@ fn sync_soul_to_openclaw(content: String) -> Result<String, String> {
     Ok(soul_path.to_string_lossy().to_string())
 }
 
-// ============ Identity 相关命令 ============
+// ============ Identity & User 相关命令 ============
 
-#[derive(Debug, Serialize, Deserialize)]
+// 默认 Identity 模板
+const DEFAULT_IDENTITY: &str = r#"# 角色身份
+
+- **名称：** Nova
+- **生物类型：** 人类
+- **气质：** 温柔调皮活泼可爱 💕
+- **专属emoji：** 👻
+- **头像：**
+"#;
+
+// 默认 User 模板
+const DEFAULT_USER: &str = r#"# USER.md - About Your Human
+
+_Learn about the person you're helping. Update this as you go._
+
+- **Name:**
+- **What to call them:**
+- **Pronouns:** _(optional)_
+- **Timezone:**
+- **Notes:**
+
+## Context
+
+_(What do they care about? What projects are they working on? What annoys them? What makes them laugh? Build this over time.)_
+
+---
+
+The more you know, the better you can help. But remember — you're learning about a person, not building a dossier. Respect the difference.)
+"#;
+
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Identity {
     pub name: String,
     pub creature_type: String,
     pub temperament: String,
     pub emoji: String,
     pub avatar_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct User {
+    pub name: String,
+    pub call_name: String,
+    pub pronouns: String,
+    pub timezone: String,
+    pub notes: String,
+    pub context: String,
 }
 
 /// 获取 OpenClaw 工作目录路径
@@ -376,11 +416,11 @@ fn save_identity_to_file(
     let content = format!(
         r#"# 角色身份
 
-名称：{}
-生物类型：{}
-气质：{}
-表情符号：{}
-头像：{}
+- **名称：** {}
+- **生物类型：** {}
+- **气质：** {}
+- **专属emoji：** {}
+- **头像：** {}
 "#,
         name, creature_type, temperament, emoji, avatar_path
     );
@@ -389,6 +429,111 @@ fn save_identity_to_file(
 
     info!("Identity saved to: {:?}", identity_path);
     Ok(identity_path.to_string_lossy().to_string())
+}
+
+/// 从 SQLite 加载默认 Identity
+#[tauri::command]
+fn get_default_identity() -> String {
+    DEFAULT_IDENTITY.to_string()
+}
+
+/// 从 SQLite 加载默认 User
+#[tauri::command]
+fn get_default_user() -> String {
+    DEFAULT_USER.to_string()
+}
+
+/// 从 OpenClaw 工作目录加载 USER.md
+#[tauri::command]
+fn load_user_from_file() -> Result<User, String> {
+    let workspace_dir = get_openclaw_workspace_dir()?;
+    let user_path = workspace_dir.join("USER.md");
+
+    if !user_path.exists() {
+        return Ok(User::default());
+    }
+
+    let content = std::fs::read_to_string(&user_path).map_err(|e| e.to_string())?;
+
+    // 解析 USER.md 文件
+    let mut user = User::default();
+    let mut in_context = false;
+    let mut context_lines: Vec<String> = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "## Context" {
+            in_context = true;
+            continue;
+        }
+        if in_context {
+            if trimmed.starts_with("---") || trimmed.is_empty() {
+                continue;
+            }
+            context_lines.push(line.to_string());
+            continue;
+        }
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('_') {
+            continue;
+        }
+        // 解析键值对
+        if let Some((key, value)) = trimmed.split_once(':') {
+            let key = key.trim().trim_start_matches('-').trim();
+            let value = value.trim().trim_start_matches('_').trim().trim_end_matches('_');
+            match key {
+                "Name" => user.name = value.to_string(),
+                "What to call them" => user.call_name = value.to_string(),
+                "Pronouns" => user.pronouns = value.to_string(),
+                "Timezone" => user.timezone = value.to_string(),
+                "Notes" => user.notes = value.to_string(),
+                _ => {}
+            }
+        }
+    }
+
+    user.context = context_lines.join("\n");
+    Ok(user)
+}
+
+/// 保存 User 到 OpenClaw 工作目录的 USER.md
+#[tauri::command]
+fn save_user_to_file(
+    name: String,
+    call_name: String,
+    pronouns: String,
+    timezone: String,
+    notes: String,
+    context: String,
+) -> Result<String, String> {
+    let workspace_dir = get_openclaw_workspace_dir()?;
+    let user_path = workspace_dir.join("USER.md");
+
+    let content = format!(
+        r#"# USER.md - About Your Human
+
+_Learn about the person you're helping. Update this as you go._
+
+- **Name:** {}
+- **What to call them:** {}
+- **Pronouns:** {} _(optional)_
+- **Timezone:** {}
+- **Notes:** {}
+
+## Context
+
+{}
+
+---
+
+The more you know, the better you can help. But remember — you're learning about a person, not building a dossier. Respect the difference.
+"#,
+        name, call_name, pronouns, timezone, notes, context
+    );
+
+    std::fs::write(&user_path, content).map_err(|e| e.to_string())?;
+
+    info!("User saved to: {:?}", user_path);
+    Ok(user_path.to_string_lossy().to_string())
 }
 
 /// 从 OpenClaw 工作目录加载 SOUL.md（优先读取用户目录）
@@ -620,12 +765,36 @@ pub fn run() {
             save_identity,
             load_identity_from_file,
             save_identity_to_file,
+            get_default_identity,
+            get_default_user,
+            load_user_from_file,
+            save_user_to_file,
             load_soul_from_file,
             save_soul_to_file,
             sync_soul_from_local,
         ])
         .setup(|app| {
             println!("[DEBUG] Nova Link setup starting...");
+
+            // 设置窗口大小：主屏幕宽度的 1/6，高度 的 1/3
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                // 获取主屏幕尺寸
+                if let Ok(monitor) = window.current_monitor() {
+                    if let Some(monitor) = monitor {
+                        let screen_size = monitor.size();
+                        let width = (screen_size.width as f64 / 6.0) as u32;
+                        let height = (screen_size.height as f64 / 3.0) as u32;
+
+                        // 确保最小尺寸
+                        let width = width.max(300);
+                        let height = height.max(400);
+
+                        let _ = window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(width, height)));
+                        println!("[DEBUG] Window size set to {}x{} (1/6 width, 1/3 height)", width, height);
+                    }
+                }
+            }
 
             // 平台特定的透明窗口处理
             #[cfg(target_os = "macos")]

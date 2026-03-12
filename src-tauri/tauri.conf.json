@@ -15,8 +15,8 @@
 		"windows": [
 			{
 				"title": "Nova Link",
-				"width": 500,
-				"height": 600,
+				"width": 400,
+				"height": 400,
 				"resizable": false,
 				"fullscreen": false,
 				"decorations": false,

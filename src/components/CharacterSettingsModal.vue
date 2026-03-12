@@ -33,6 +33,16 @@
 		avatarPath: "",
 	})
 
+	// 用户设置 (User)
+	const user = reactive({
+		name: "",
+		callName: "",
+		pronouns: "",
+		timezone: "",
+		notes: "",
+		context: "",
+	})
+
 	// Soul 设置
 	const soulContent = ref("")
 	const soulEditable = ref(false)
@@ -40,6 +50,77 @@
 
 	// 同步状态
 	const syncing = ref(false)
+
+	// Dialog 状态
+	const dialogVisible = ref(false)
+	const dialogOptions = ref({
+		title: "",
+		message: "",
+		type: "info" as "info" | "warning" | "error" | "success",
+		showCancel: true,
+		confirmText: "",
+		cancelText: "",
+	})
+
+	// Dialog 处理函数
+	function showDialog(options: {
+		message: string
+		title?: string
+		type?: "info" | "warning" | "error" | "success"
+		showCancel?: boolean
+		confirmText?: string
+		cancelText?: string
+	}) {
+		dialogOptions.value = {
+			message: options.message,
+			title: options.title || "",
+			type: options.type || "info",
+			showCancel: options.showCancel ?? true,
+			confirmText: options.confirmText,
+			cancelText: options.cancelText,
+		}
+		dialogVisible.value = true
+	}
+
+	function showConfirm(message: string, title?: string): Promise<boolean> {
+		return new Promise((resolve) => {
+			dialogOptions.value = {
+				message,
+				title: title || "确认",
+				type: "warning",
+				showCancel: true,
+			}
+			dialogVisible.value = true
+
+			const handleConfirm = () => {
+				dialogVisible.value = false
+				cleanup()
+				resolve(true)
+			}
+			const handleCancel = () => {
+				dialogVisible.value = false
+				cleanup()
+				resolve(false)
+			}
+			const cleanup = () => {
+				offConfirm.value = undefined
+				offCancel.value = undefined
+			}
+			offConfirm.value = handleConfirm
+			offCancel.value = handleCancel
+		})
+	}
+
+	const offConfirm = ref<(() => void) | undefined>(undefined)
+	const offCancel = ref<(() => void) | undefined>(undefined)
+
+	function handleDialogConfirm() {
+		offConfirm.value?.()
+	}
+
+	function handleDialogCancel() {
+		offCancel.value?.()
+	}
 
 	// 应用设置
 	const localSettings = reactive<AppSettings>({ ...settings.value })
@@ -49,14 +130,25 @@
 	async function loadAllData() {
 		loading.value = true
 		try {
-			// 加载 Identity（优先从文件读取）
+			// 加载 Identity（从文件读取）
 			const identityData = await invoke<any>("load_identity_from_file")
 			Object.assign(identity, {
-				name: identityData.name || "",
-				creatureType: identityData.creature_type || "",
-				temperament: identityData.temperament || "",
-				emoji: identityData.emoji || "",
+				name: identityData.name || "Nova",
+				creatureType: identityData.creature_type || "人类",
+				temperament: identityData.temperament || "温柔调皮活泼可爱 💕",
+				emoji: identityData.emoji || "👻",
 				avatarPath: identityData.avatar_path || "",
+			})
+
+			// 加载 User（从文件读取）
+			const userData = await invoke<any>("load_user_from_file")
+			Object.assign(user, {
+				name: userData.name || "",
+				callName: userData.call_name || "",
+				pronouns: userData.pronouns || "",
+				timezone: userData.timezone || "",
+				notes: userData.notes || "",
+				context: userData.context || "",
 			})
 
 			// 加载 Soul（从 OpenClaw 目录读取）
@@ -88,13 +180,14 @@
 				avatarPath: identity.avatarPath,
 			})
 
-			// 保存 Identity 到文件
-			await invoke("save_identity_to_file", {
-				name: identity.name,
-				creatureType: identity.creatureType,
-				temperament: identity.temperament,
-				emoji: identity.emoji,
-				avatarPath: identity.avatarPath,
+			// 保存 User 到文件
+			await invoke("save_user_to_file", {
+				name: user.name,
+				callName: user.callName,
+				pronouns: user.pronouns,
+				timezone: user.timezone,
+				notes: user.notes,
+				context: user.context,
 			})
 
 			// 保存 Soul（如果有修改）
@@ -125,7 +218,7 @@
 			emit("close")
 		} catch (e) {
 			console.error("Failed to save:", e)
-			alert("保存失败：" + e)
+			showDialog({ message: "保存失败：" + e, type: "error" })
 		} finally {
 			saving.value = false
 		}
@@ -134,32 +227,24 @@
 	// ============ 同步功能 ============
 
 	async function syncToOpenClaw() {
-		const confirmed = confirm(
-			"确定要将所有设置同步到 OpenClaw 工作目录吗？\n\n这将覆盖 ~/.openclaw/workspace/ 下的 SOUL.md 和 IDENTITY.md 文件。",
+		const confirmed = await showConfirm(
+			"确定要将灵魂设置同步到 OpenClaw 工作目录吗？\n\n这将覆盖 ~/.openclaw/workspace/ 下的 SOUL.md 文件。\n\n注意：身份和用户信息将通过对话进行设置。",
+			"确认同步",
 		)
 		if (!confirmed) return
 
 		syncing.value = true
 		try {
-			// 同步 Soul
+			// 只同步 Soul 到 OpenClaw
 			const soulToSave = soulEditable.value
 				? soulContent.value
 				: soulOriginalContent.value
 			await invoke("save_soul_to_file", { content: soulToSave })
 
-			// 同步 Identity
-			await invoke("save_identity_to_file", {
-				name: identity.name,
-				creatureType: identity.creatureType,
-				temperament: identity.temperament,
-				emoji: identity.emoji,
-				avatarPath: identity.avatarPath,
-			})
-
-			alert("已同步到 OpenClaw 工作目录")
+			showDialog({ message: "已同步到 OpenClaw 工作目录", type: "success" })
 		} catch (e) {
 			console.error("Sync failed:", e)
-			alert("同步失败：" + e)
+			showDialog({ message: "同步失败：" + e, type: "error" })
 		} finally {
 			syncing.value = false
 		}
@@ -300,6 +385,81 @@
 											type="text"
 											placeholder="工作区相对路径、http(s) URL 或 data URI"
 										/>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- 用户设置 (User) -->
+						<div class="accordion-item">
+							<div
+								class="accordion-header"
+								@click="toggleSection('user')"
+							>
+								<span class="accordion-icon">👥</span>
+								<span class="accordion-title">用户设置</span>
+								<span
+									class="accordion-arrow"
+									:class="{ active: isSectionActive('user') }"
+									>▼</span
+								>
+							</div>
+							<div
+								class="accordion-content"
+								:class="{ active: isSectionActive('user') }"
+							>
+								<p class="section-hint">
+									了解使用者的信息，用于提供更好的对话体验
+								</p>
+								<div class="form-grid">
+									<div class="form-group">
+										<label>使用者名称</label>
+										<input
+											v-model="user.name"
+											type="text"
+											placeholder="用户的名字"
+										/>
+									</div>
+									<div class="form-group">
+										<label>称呼</label>
+										<input
+											v-model="user.callName"
+											type="text"
+											placeholder="希望你怎么称呼"
+										/>
+									</div>
+									<div class="form-group">
+										<label>代词 (可选)</label>
+										<input
+											v-model="user.pronouns"
+											type="text"
+											placeholder="他/她/他们"
+										/>
+									</div>
+									<div class="form-group">
+										<label>时区</label>
+										<input
+											v-model="user.timezone"
+											type="text"
+											placeholder="Asia/Shanghai"
+										/>
+									</div>
+									<div class="form-group full-width">
+										<label>备注</label>
+										<input
+											v-model="user.notes"
+											type="text"
+											placeholder="其他需要注意的信息"
+										/>
+									</div>
+									<div class="form-group full-width">
+										<label>背景上下文</label>
+										<textarea
+											v-model="user.context"
+											class="soul-textarea"
+											placeholder="他们关心什么？正在做什么项目？什么让他们烦恼？什么让他们笑？"
+											rows="4"
+										></textarea>
 									</div>
 								</div>
 							</div>
@@ -540,6 +700,20 @@
 				</template>
 			</div>
 		</div>
+
+		<!-- 全局 Dialog -->
+		<Dialog
+			:visible="dialogVisible"
+			:title="dialogOptions.title"
+			:message="dialogOptions.message"
+			:type="dialogOptions.type"
+			:show-cancel="dialogOptions.showCancel"
+			:confirm-text="dialogOptions.confirmText"
+			:cancel-text="dialogOptions.cancelText"
+			@close="handleDialogCancel"
+			@confirm="handleDialogConfirm"
+			@cancel="handleDialogCancel"
+		/>
 	</Teleport>
 </template>
 
@@ -831,6 +1005,14 @@
 		font-size: 12px;
 		color: #94a3b8;
 		font-weight: 500;
+	}
+
+	/* 区块提示文字 */
+	.section-hint {
+		font-size: 12px;
+		color: #64748b;
+		margin: 0 0 16px;
+		font-style: italic;
 	}
 
 	.form-group input,
