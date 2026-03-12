@@ -16,6 +16,7 @@
 	const { settings, saveSettings, updateLlmConfig } = useSettings()
 
 	const localSettings = reactive<AppSettings>({ ...settings.value })
+	const windowSize = reactive({ width: 400, height: 500 })
 
 	// Soul 人格相关状态
 	const soulContent = ref("")
@@ -129,9 +130,18 @@
 
 	watch(
 		() => props.visible,
-		(visible) => {
+		async (visible) => {
 			if (visible) {
 				Object.assign(localSettings, settings.value)
+				try {
+					const currentSize = await invoke<{ width: number; height: number }>(
+						"get_window_size",
+					)
+					windowSize.width = currentSize.width
+					windowSize.height = currentSize.height
+				} catch (e) {
+					console.error("Failed to load window size:", e)
+				}
 			}
 		},
 	)
@@ -197,14 +207,8 @@
 		const modelPath = (
 			document.getElementById("setting-model-path") as HTMLInputElement
 		)?.value
-		const width = parseInt(
-			(document.getElementById("setting-width") as HTMLInputElement)?.value ||
-				"400",
-		)
-		const height = parseInt(
-			(document.getElementById("setting-height") as HTMLInputElement)?.value ||
-				"500",
-		)
+		const width = windowSize.width
+		const height = windowSize.height
 		const wsUrl = (
 			document.getElementById("setting-ws-url") as HTMLInputElement
 		)?.value
@@ -235,8 +239,6 @@
 		)?.checked ?? true
 
 		localSettings.modelPath = modelPath
-		localSettings.windowWidth = width
-		localSettings.windowHeight = height
 		localSettings.wsUrl = wsUrl
 		localSettings.wsToken = wsToken
 		localSettings.chatProvider = chatProvider.value
@@ -249,10 +251,9 @@
 		localSettings.bgBlur = bgBlur
 
 		try {
-			const win = await getCurrentWindow()
-			const position = await win.outerPosition()
-			localSettings.windowX = position.x
-			localSettings.windowY = position.y
+			// 移除 windowX/Y 更新，因为 AppSettings 已不再包含这些字段
+			// const win = await getCurrentWindow()
+			// const position = await win.outerPosition()
 		} catch (e) {
 			console.error("[SettingsModal] Failed to get window position:", e)
 		}
@@ -262,9 +263,7 @@
 		await updateLlmConfig()
 
 		const win = await getCurrentWindow()
-		await win.setSize(
-			new LogicalSize(localSettings.windowWidth, localSettings.windowHeight),
-		)
+		await win.setSize(new LogicalSize(width, height))
 
 		emit("save", localSettings)
 		emit("close")
@@ -307,7 +306,7 @@
 						<input
 							id="setting-width"
 							type="number"
-							:value="localSettings.windowWidth"
+							v-model="windowSize.width"
 						/>
 					</div>
 					<div class="form-group">
@@ -315,7 +314,7 @@
 						<input
 							id="setting-height"
 							type="number"
-							:value="localSettings.windowHeight"
+							v-model="windowSize.height"
 						/>
 					</div>
 				</div>

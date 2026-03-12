@@ -1,5 +1,5 @@
 <script setup lang="ts">
-	import { ref, nextTick, watch, computed } from "vue"
+	import { ref, nextTick, watch } from "vue"
 	import { marked } from "marked"
 	import type { ChatMessage, WsStatus } from "../composables"
 
@@ -21,7 +21,6 @@
 	}>()
 
 	const messagesContainer = ref<HTMLElement | null>(null)
-	const inputRef = ref<HTMLInputElement | null>(null)
 	const localInput = ref("")
 
 	// 解析 Markdown
@@ -87,7 +86,6 @@
 			<input
 				id="message-input"
 				v-model="localInput"
-				ref="inputRef"
 				type="text"
 				placeholder="Type a message..."
 				autocomplete="off"

@@ -3,7 +3,6 @@
 	import { getCurrentWindow } from "@tauri-apps/api/window"
 	import { invoke } from "@tauri-apps/api/core"
 	import { useSettings, type AppSettings } from "../composables"
-
 	const props = defineProps<{
 		visible: boolean
 	}>()
@@ -102,8 +101,8 @@
 			title: options.title || "",
 			type: options.type || "info",
 			showCancel: options.showCancel ?? true,
-			confirmText: options.confirmText,
-			cancelText: options.cancelText,
+			confirmText: options.confirmText || "确定",
+			cancelText: options.cancelText || "取消",
 		}
 		dialogVisible.value = true
 	}
@@ -115,6 +114,8 @@
 				title: title || "确认",
 				type: "warning",
 				showCancel: true,
+				confirmText: "确定",
+				cancelText: "取消",
 			}
 			dialogVisible.value = true
 
@@ -150,6 +151,8 @@
 
 	// 应用设置
 	const localSettings = reactive<AppSettings>({ ...settings.value })
+	// 窗口尺寸独立管理
+	const windowSize = reactive({ width: 400, height: 500 })
 
 	// ============ 数据加载 ============
 
@@ -187,17 +190,18 @@
 			soulEditable.value = false
 
 			// 从后端获取当前窗口尺寸
-			const windowSize = await invoke<{ width: number; height: number }>("get_window_size")
-			localSettings.windowWidth = windowSize.width
-			localSettings.windowHeight = windowSize.height
-
+			const currentSize = await invoke<{ width: number; height: number }>(
+				"get_window_size",
+			)
+			windowSize.width = currentSize.width
+			windowSize.height = currentSize.height
+			console.log("Loaded window size:", currentSize)
 			// 加载其他应用设置
 			Object.assign(localSettings, settings.value)
 		} catch (e) {
 			console.error("Failed to load data:", e)
 		} finally {
 			loading.value = false
-			isLoadingData = false
 		}
 	}
 
@@ -248,20 +252,10 @@
 			await saveSettings()
 			await updateLlmConfig()
 
-			// 保存窗口尺寸到后端
-			await invoke("save_setting", {
-				key: "window_width",
-				value: String(localSettings.windowWidth),
-			})
-			await invoke("save_setting", {
-				key: "window_height",
-				value: String(localSettings.windowHeight),
-			})
-
 			// 应用窗口大小
 			await invoke("set_window_size", {
-				width: Math.max(300, localSettings.windowWidth),
-				height: Math.max(400, localSettings.windowHeight),
+				width: Math.max(300, windowSize.width),
+				height: Math.max(400, windowSize.height),
 			})
 
 			emit("save", localSettings)
@@ -358,7 +352,10 @@
 			class="modal-overlay"
 			@click.self="emit('close')"
 		>
-			<div class="modal-content" :style="modalStyle">
+			<div
+				class="modal-content"
+				:style="modalStyle"
+			>
 				<!-- 加载状态 -->
 				<div
 					v-if="loading"
@@ -609,7 +606,7 @@
 										<input
 											id="setting-width"
 											type="number"
-											v-model="localSettings.windowWidth"
+											v-model="windowSize.width"
 										/>
 									</div>
 									<div class="form-group">
@@ -617,7 +614,7 @@
 										<input
 											id="setting-height"
 											type="number"
-											v-model="localSettings.windowHeight"
+											v-model="windowSize.height"
 										/>
 									</div>
 									<div class="form-group">

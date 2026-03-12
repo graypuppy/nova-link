@@ -10,10 +10,12 @@ export interface UseWebSocketOptions {
   onStatusChange?: (status: WsStatus) => void
   onStreamUpdate?: (text: string) => void
   onMessageStart?: (payload: any) => void
+  onContentDelta?: (payload: any) => void
   onMessageStop?: (payload: any) => void
   onConnected?: (hello: any) => void
   onError?: (error: string) => void
   onEmotion?: (emotion: EmotionData) => void
+  onDisconnected?: () => void
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
@@ -94,6 +96,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       },
       onContentDelta: (payload) => {
         console.log("[useWebSocket] Content delta:", payload.delta)
+        options.onContentDelta?.(payload)
       },
       onMessageDelta: (payload) => {
         console.log("[useWebSocket] Message delta:", payload)

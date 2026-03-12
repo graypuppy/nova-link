@@ -6,10 +6,9 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  click: []
+  click: [e: MouseEvent]
 }>()
 
-const containerRef = ref<HTMLElement | null>(null)
 const placeholderRef = ref<HTMLElement | null>(null)
 
 function handleClick(e: MouseEvent) {

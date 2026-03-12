@@ -3,10 +3,6 @@ import { invoke } from "@tauri-apps/api/core"
 
 export interface AppSettings {
 	modelPath: string
-	windowWidth: number
-	windowHeight: number
-	windowX: number
-	windowY: number
 	wsUrl: string
 	wsToken: string
 	chatProvider: "llm" | "openclaw"
@@ -18,6 +14,11 @@ export interface AppSettings {
 	bgColor: string
 	bgOpacity: number
 	bgBlur: boolean
+	// 窗口位置和大小（由 Rust 后端管理）
+	windowX?: number
+	windowY?: number
+	windowWidth?: number
+	windowHeight?: number
 }
 
 const DEFAULT_MODEL_PATH =
@@ -25,10 +26,6 @@ const DEFAULT_MODEL_PATH =
 
 const defaultSettings: AppSettings = {
 	modelPath: DEFAULT_MODEL_PATH,
-	windowWidth: 400,
-	windowHeight: 500,
-	windowX: 100,
-	windowY: 100,
 	wsUrl: "ws://127.0.0.1:18789/",
 	wsToken: "",
 	chatProvider: "openclaw",

@@ -1,14 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from "vue"
-
-interface DialogOptions {
-	title?: string
-	message: string
-	confirmText?: string
-	cancelText?: string
-	type?: "info" | "warning" | "error" | "success"
-	showCancel?: boolean
-}
+import { ref, computed } from "vue"
 
 const props = defineProps<{
 	visible: boolean

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-	import { ref, onMounted, watch, nextTick, computed } from "vue"
+	import { ref, onMounted, watch, nextTick } from "vue"
 	import { listen } from "@tauri-apps/api/event"
 	import { invoke } from "@tauri-apps/api/core"
 	import {
@@ -17,26 +17,18 @@
 		ContextMenu,
 	} from "./components"
 
-	const { settings, loadSettings, saveSettings, updateLlmConfig } =
-		useSettings()
+	const { settings, loadSettings } = useSettings()
 	const {
 		initLive2D,
 		loadLive2DModel,
 		reloadModel,
 		hasModel,
-		resizeLive2D,
 		handleUserInteraction,
-		handleUserMessage,
-		handleBotThinking,
 		handleBotMessage,
 		handleEmotion,
-		handleMessageComplete,
-		onModelClick,
-		getCurrentState,
 		previewState,
 		previewMotion,
 		resetToIdle,
-		destroy: destroyLive2D,
 	} = useLive2D()
 	const {
 		wsStatus,
@@ -113,18 +105,12 @@
 		toggleAlwaysOnTop,
 		minimizeWindow,
 		closeWindow: closeAppWindow,
-		resizeWindow,
 	} = useWindow()
 
 	const showSettings = ref(false)
 	const showContextMenu = ref(false)
 	const contextMenuX = ref(0)
 	const contextMenuY = ref(0)
-
-	// 动态背景样式
-	const appBackgroundStyle = computed(() => ({
-		background: `rgba(${hexToRgb(settings.value.bgColor)}, ${settings.value.bgOpacity})`,
-	}))
 
 	function hexToRgb(hex: string): string {
 		const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
@@ -344,12 +330,6 @@
 		}
 	}
 
-	function handleInputKeyPress(e: KeyboardEvent) {
-		if (e.key === "Enter") {
-			handleSendMessage()
-		}
-	}
-
 	function openSettings() {
 		showSettings.value = true
 		showContextMenu.value = false
@@ -386,8 +366,10 @@
 		showContextMenu.value = false
 	}
 
-	function handleResetWindowSize() {
-		resizeWindow(400, 500)
+	async function handleResetWindowSize() {
+		// 从后端获取基于屏幕尺寸的默认窗口大小
+		const defaultSize = await invoke<{ width: number; height: number }>("set_default_window_size")
+		console.log("[App] Reset window size to:", defaultSize)
 		showContextMenu.value = false
 	}
 
