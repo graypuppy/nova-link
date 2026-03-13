@@ -145,10 +145,13 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Generate latest.json from release assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
@@ -184,6 +187,10 @@ jobs:
           mac_sig_names="$(echo "${release_json}" | jq -r '.assets[].name' | grep -E '\.app\.tar\.gz\.sig$' || true)"
           mac_x64_sig_name="$(echo "${mac_sig_names}" | grep -E '(x64|x86_64|intel)' | head -n 1 || true)"
           mac_arm_sig_name="$(echo "${mac_sig_names}" | grep -E '(aarch64|arm64)' | head -n 1 || true)"
+          mac_universal_sig_name=""
+          if [ -z "${mac_x64_sig_name}" ] && [ -z "${mac_arm_sig_name}" ]; then
+            mac_universal_sig_name="$(echo "${mac_sig_names}" | head -n 1 || true)"
+          fi
 
           mac_x64_url=""
           mac_x64_sig=""
@@ -199,6 +206,10 @@ jobs:
             mac_arm_sig_url="$(asset_url "${mac_arm_sig_name}")"
             mac_arm_url="$(asset_url "${mac_arm_sig_name%.sig}")"
             mac_arm_sig="$(sig_content "${mac_arm_sig_url}")"
+          elif [ -n "${mac_universal_sig_name}" ]; then
+            mac_arm_sig_url="$(asset_url "${mac_universal_sig_name}")"
+            mac_arm_url="$(asset_url "${mac_universal_sig_name%.sig}")"
+            mac_arm_sig="$(sig_content "${mac_arm_sig_url}")"
           fi
 
           platforms='{}'
@@ -207,6 +218,8 @@ jobs:
           fi
           if [ -n "${mac_x64_url}" ] && [ -n "${mac_x64_sig}" ]; then
             platforms="$(echo "${platforms}" | jq --arg url "${mac_x64_url}" --arg sig "${mac_x64_sig}" '. + {"darwin-x86_64": {"url": $url, "signature": $sig}}')"
+          elif [ -n "${mac_universal_sig_name}" ] && [ -n "${mac_arm_url}" ] && [ -n "${mac_arm_sig}" ]; then
+            platforms="$(echo "${platforms}" | jq --arg url "${mac_arm_url}" --arg sig "${mac_arm_sig}" '. + {"darwin-x86_64": {"url": $url, "signature": $sig}}')"
           fi
           if [ -n "${mac_arm_url}" ] && [ -n "${mac_arm_sig}" ]; then
             platforms="$(echo "${platforms}" | jq --arg url "${mac_arm_url}" --arg sig "${mac_arm_sig}" '. + {"darwin-aarch64": {"url": $url, "signature": $sig}}')"
@@ -217,4 +230,4 @@ jobs:
               '{version: $v, pub_date: $d, notes: $b, platforms: $p}' \
             > latest.json
 
-          gh release upload "${TAG_NAME}" latest.json --clobber
+          gh release upload "${TAG_NAME}" latest.json --clobber --repo "${REPO}"
