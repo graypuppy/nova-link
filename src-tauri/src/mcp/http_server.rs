@@ -126,6 +126,11 @@ async fn handle_request(
     let method = req.method();
     let path = req.uri().path();
 
+    // Handle /api/animation endpoint (simplified REST API)
+    if path.starts_with("/api/animation") {
+        return handle_animation_api(req, mcp_server).await;
+    }
+
     // Only accept POST requests to /mcp endpoint
     if method != Method::POST || path != "/mcp" {
         return Ok(Response::builder()
@@ -165,6 +170,71 @@ async fn handle_request(
     Ok(Response::builder()
         .status(500)
         .body(Full::new(Bytes::from("MCP Server not initialized")))
+        .unwrap())
+}
+
+/// Handle /api/animation endpoint (simplified REST API for OpenClaw Skill)
+async fn handle_animation_api(
+    req: Request<hyper::body::Incoming>,
+    mcp_server: Arc<Mutex<Option<McpServer>>>,
+) -> Result<Response<Full<Bytes>>, Infallible> {
+    // Parse query parameters
+    let query = req.uri().query().unwrap_or("");
+
+    // Parse emotion and duration from query string
+    let mut emotion = "idle".to_string();
+    let mut duration = 2000u64;
+
+    for pair in query.split('&') {
+        let kv: Vec<&str> = pair.split('=').collect();
+        if kv.len() == 2 {
+            match kv[0] {
+                "emotion" => emotion = kv[1].to_string(),
+                "duration" => {
+                    duration = kv[1].parse().unwrap_or(2000);
+                }
+                "animation" => emotion = kv[1].to_string(), // alias for emotion
+                _ => {}
+            }
+        }
+    }
+
+    log::info!(
+        "Animation API: emotion={}, duration={}ms",
+        emotion,
+        duration
+    );
+
+    // Build MCP request
+    let mcp_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "play_animation",
+            "arguments": {
+                "animation": emotion,
+                "duration": duration
+            }
+        }
+    });
+
+    // Get MCP server and handle request
+    let server_lock = mcp_server.lock().await;
+    if let Some(server) = server_lock.as_ref() {
+        if let Some(response) = server.handle_request(mcp_request).await {
+            let response_json = serde_json::to_string(&response).unwrap();
+            return Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Full::new(Bytes::from(response_json)))
+                .unwrap());
+        }
+    }
+
+    Ok(Response::builder()
+        .status(500)
+        .body(Full::new(Bytes::from(r#"{"error": "MCP Server not initialized"}"#)))
         .unwrap())
 }
 
