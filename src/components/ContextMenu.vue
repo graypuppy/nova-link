@@ -5,6 +5,7 @@ const props = defineProps<{
   visible: boolean
   x: number
   y: number
+  availableMotions?: string[]  // 模型可用的动画组
 }>()
 
 // 菜单元件的引用（用于获取实际尺寸）
@@ -58,33 +59,43 @@ const emit = defineEmits<{
 // 开发环境标识
 const isDev = ref(import.meta.env.DEV)
 
-// 动画状态列表
+// 动画状态列表（已移除情绪相关状态）
 const animationStates = [
   { label: "IDLE (待机)", value: "IDLE" },
   { label: "GREETING (问候)", value: "GREETING" },
   { label: "TALKING (说话)", value: "TALKING" },
   { label: "LISTENING (倾听)", value: "LISTENING" },
   { label: "THINKING (思考)", value: "THINKING" },
-  { label: "HAPPY (开心)", value: "HAPPY" },
-  { label: "SAD (难过)", value: "SAD" },
-  { label: "SURPRISED (惊讶)", value: "SURPRISED" },
-  { label: "ANGRY (生气)", value: "ANGRY" },
   { label: "SLEEPING (睡觉)", value: "SLEEPING" },
 ]
 
-// 动画动作列表
-const motionGroups = [
-  { label: "Tap (点击)", value: "Tap" },
-  { label: "Tap@Body (点击身体)", value: "Tap@Body" },
-  { label: "Flick (轻拂)", value: "Flick" },
-  { label: "FlickUp (向上)", value: "FlickUp" },
-  { label: "FlickDown (向下)", value: "FlickDown" },
-  { label: "Idle (待机)", value: "Idle" },
-]
+// 动态获取的动作列表（基于模型可用动画组）
+const motionGroups = computed(() => {
+  if (props.availableMotions && props.availableMotions.length > 0) {
+    return props.availableMotions.map(motion => ({
+      label: motion,
+      value: motion
+    }))
+  }
+  // 默认动作列表
+  return [
+    { label: "Idle (待机)", value: "Idle" },
+    { label: "TapBody (点击身体)", value: "TapBody" },
+    { label: "TapLeft (点击左侧)", value: "TapLeft" },
+    { label: "TapRight (点击右侧)", value: "TapRight" },
+  ]
+})
+
+// 显示可用动画组的调试信息
+const showMotionInfo = ref(false)
 
 const showDebugSubmenu = ref(false)
 const showStateSubmenu = ref(false)
 const showMotionSubmenu = ref(false)
+
+function toggleMotionInfo() {
+  showMotionInfo.value = !showMotionInfo.value
+}
 
 function handleClick(item: string) {
   switch (item) {
@@ -254,6 +265,20 @@ onUnmounted(() => {
           <div class="menu-item submenu-item" @click.stop="handleClick('resetToIdle')">
             重置为待机
           </div>
+          <!-- 显示可用动画组 -->
+          <div class="menu-item has-submenu submenu-item" @click.stop="toggleMotionInfo">
+            可用动画组 ▼
+          </div>
+          <div v-if="showMotionInfo" class="motion-info-box">
+            <div v-if="availableMotions && availableMotions.length > 0">
+              <div v-for="motion in availableMotions" :key="motion" class="motion-info-item">
+                {{ motion }}
+              </div>
+            </div>
+            <div v-else class="motion-info-empty">
+              未加载模型
+            </div>
+          </div>
           <div class="menu-item has-submenu submenu-item" @click.stop="toggleStateMenu">
             动画状态 ►
           </div>
@@ -327,5 +352,27 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.motion-info-box {
+  background: rgba(0, 0, 0, 0.3);
+  margin: 4px 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.motion-info-item {
+  font-size: 11px;
+  color: #94a3b8;
+  padding: 2px 0;
+  font-family: monospace;
+}
+
+.motion-info-empty {
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
 }
 </style>

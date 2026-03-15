@@ -10,6 +10,7 @@ pub struct SaveResult {
 
 /// 从配置文件加载 Identity
 #[tauri::command]
+#[allow(dead_code)]
 pub fn load_identity() -> Result<Identity, String> {
     config::load_identity()
 }
@@ -89,6 +90,7 @@ pub fn load_identity_from_file() -> Result<Identity, String> {
 
 /// 保存 Identity 到 OpenClaw 工作目录的 IDENTITY.md（保留兼容）
 #[tauri::command]
+#[allow(dead_code)]
 pub fn save_identity_to_file(
     name: String,
     creature_type: String,
@@ -108,6 +110,7 @@ pub fn save_identity_to_file(
 
 /// 获取默认 Identity 模板
 #[tauri::command]
+#[allow(dead_code)]
 pub fn get_default_identity() -> String {
     config::IDENTITY_TEMPLATE.to_string()
 }

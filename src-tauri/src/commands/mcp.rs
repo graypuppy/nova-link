@@ -4,8 +4,8 @@
 use crate::mcp::{McpEvent, McpHttpServer, McpServer};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
 
 /// Global MCP Server instance
 static MCP_SERVER: once_cell::sync::Lazy<Arc<Mutex<Option<McpServer>>>> =
@@ -38,7 +38,7 @@ pub async fn start_mcp_server_with_config(
     let server = McpServer::new();
 
     // Create channel for sending events to frontend
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<McpEvent>(100);
+    let (_tx, mut rx) = tokio::sync::mpsc::channel::<McpEvent>(100);
 
     // Clone app handle for event emission
     let app_handle = app.clone();
@@ -158,7 +158,10 @@ pub async fn get_mcp_tools() -> Result<Vec<serde_json::Value>, String> {
 
     if let Some(server) = server_lock.as_ref() {
         let tools = server.list_tools();
-        Ok(tools.into_iter().map(|t| serde_json::to_value(t).unwrap()).collect())
+        Ok(tools
+            .into_iter()
+            .map(|t| serde_json::to_value(t).unwrap())
+            .collect())
     } else {
         Err("MCP Server not running".to_string())
     }
@@ -205,8 +208,6 @@ pub async fn get_mcp_config() -> Result<serde_json::Value, String> {
 
 /// Get local IP address
 fn get_local_ip() -> Option<String> {
-    use std::net::ToSocketAddrs;
-
     // Try to connect to a public DNS server to determine local IP
     if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
         if socket.connect("8.8.8.8:80").is_ok() {

@@ -32,6 +32,7 @@ hyper-util = "0.1"
 tower = { version = "0.4", features = ["util"] }
 async-trait = "0.1"
 http-body-util = "0.1"
+tauri-plugin-log = "2"
 
 [profile.release]
 strip = true

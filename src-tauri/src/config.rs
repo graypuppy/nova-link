@@ -60,7 +60,9 @@ fn render_tera(template_name: &str, vars: &serde_json::Value) -> String {
 }
 
 /// 嵌入模板（使用 include_str! 宏）- 用于默认值
+#[allow(dead_code)]
 pub const IDENTITY_TEMPLATE: &str = include_str!("../templates/identity.md");
+#[allow(dead_code)]
 pub const USER_TEMPLATE: &str = include_str!("../templates/user.md");
 pub const SOUL_TEMPLATE: &str = include_str!("../templates/soul.md");
 

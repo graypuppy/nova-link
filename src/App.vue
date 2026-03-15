@@ -97,7 +97,16 @@
 		previewState,
 		previewMotion,
 		resetToIdle,
+		getAvailableMotions,
 	} = useLive2D()
+
+	// 可用的动画组列表
+	const availableMotions = ref<string[]>([])
+
+	// 更新可用动画组列表
+	function updateAvailableMotions() {
+		availableMotions.value = getAvailableMotions()
+	}
 	const {
 		wsStatus,
 		connectWebSocket,
@@ -194,6 +203,7 @@
 
 		await initLive2D()
 		await loadLive2DModel(settings.value.modelPath)
+		updateAvailableMotions()
 
 		if (settings.value.wsUrl) {
 			connectWebSocket(settings.value.wsUrl, settings.value.wsToken)
@@ -226,6 +236,7 @@
 			setTimeout(async () => {
 				await initLive2D()
 				await loadLive2DModel(settings.value.modelPath)
+				updateAvailableMotions()
 			}, 100)
 		})
 	}
@@ -553,6 +564,7 @@
 			:visible="showContextMenu"
 			:x="contextMenuX"
 			:y="contextMenuY"
+			:available-motions="availableMotions"
 			@close="showContextMenu = false"
 			@settings="openSettings"
 			@check-updates="handleCheckUpdates"

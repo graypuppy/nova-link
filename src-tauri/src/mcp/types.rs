@@ -7,15 +7,15 @@ use serde_json::Value;
 /// MCP Message types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "jsonrpc", content = "result")]
+#[allow(dead_code)]
 pub enum McpMessage {
-    // Initialize request/response
     #[serde(rename = "2.0")]
     Initialize(Request<InitializeParams>, Response<InitializeResult>),
-    #[serde(rename = "2.0")]
     Initialized(Notification<InitializedParams>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct Request<T> {
     pub id: u64,
     pub method: String,
@@ -24,6 +24,7 @@ pub struct Request<T> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct Response<T> {
     pub id: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -33,6 +34,7 @@ pub struct Response<T> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct Notification<T> {
     pub method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -40,6 +42,7 @@ pub struct Notification<T> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct McpError {
     pub code: i32,
     pub message: String,
@@ -125,6 +128,7 @@ pub struct ServerInfo {
 
 /// Notification params
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct InitializedParams {}
 
 /// Tool definition
@@ -137,6 +141,7 @@ pub struct Tool {
 
 /// tools/list request/response
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ListToolsParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,

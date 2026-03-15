@@ -17,6 +17,7 @@ pub struct McpServer {
 
 /// MCP Events that can be sent to the frontend
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum McpEvent {
     Animation { name: String, duration: u64 },
     Emotion { emotion: String },
@@ -100,6 +101,7 @@ impl McpServer {
     }
 
     /// Set event sender for communicating with frontend
+    #[allow(dead_code)]
     pub async fn set_event_sender(&self, sender: tokio::sync::mpsc::Sender<McpEvent>) {
         let mut sender_lock = self.event_sender.lock().await;
         *sender_lock = Some(sender);

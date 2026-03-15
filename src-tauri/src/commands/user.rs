@@ -3,6 +3,7 @@ use crate::config::User;
 
 /// 获取默认 User 模板
 #[tauri::command]
+#[allow(dead_code)]
 pub fn get_default_user() -> String {
     crate::config::USER_TEMPLATE.to_string()
 }
@@ -59,6 +60,7 @@ pub fn save_user(
 
 /// 保存 User 到 OpenClaw 工作目录的 USER.md
 #[tauri::command]
+#[allow(dead_code)]
 pub fn save_user_to_file(
     name: String,
     call_name: String,

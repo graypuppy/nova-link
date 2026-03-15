@@ -1,7 +1,7 @@
 // MCP HTTP Server implementation
 // Provides HTTP endpoints for MCP protocol communication
 
-use crate::mcp::{McpEvent, McpServer};
+use crate::mcp::McpServer;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::server::conn::http1;
@@ -146,10 +146,7 @@ async fn handle_request(
         Err(e) => {
             return Ok(Response::builder()
                 .status(400)
-                .body(Full::new(Bytes::from(format!(
-                    "Invalid JSON: {}",
-                    e
-                ))))
+                .body(Full::new(Bytes::from(format!("Invalid JSON: {}", e))))
                 .unwrap());
         }
     };
@@ -228,21 +225,8 @@ async fn handle_animation_api(
 
     Ok(Response::builder()
         .status(500)
-        .body(Full::new(Bytes::from(r#"{"error": "MCP Server not initialized"}"#)))
-        .unwrap())
-}
-
-/// Get server info endpoint
-async fn handle_info_request() -> Result<Response<Full<Bytes>>, Infallible> {
-    let info = serde_json::json!({
-        "name": "nova-link",
-        "version": env!("CARGO_PKG_VERSION"),
-        "protocol_version": "2024-11-05"
-    });
-
-    Ok(Response::builder()
-        .status(200)
-        .header("Content-Type", "application/json")
-        .body(Full::new(Bytes::from(info.to_string())))
+        .body(Full::new(Bytes::from(
+            r#"{"error": "MCP Server not initialized"}"#,
+        )))
         .unwrap())
 }

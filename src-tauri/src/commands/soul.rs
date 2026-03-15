@@ -65,6 +65,7 @@ pub fn load_soul_from_file() -> Result<SoulData, String> {
 }
 
 /// 从 Markdown 内容解析 Soul 数据
+#[allow(dead_code)]
 fn parse_soul_from_markdown(content: &str) -> SoulData {
     let mut data = SoulData {
         name: String::new(),
