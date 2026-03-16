@@ -79,7 +79,7 @@ jobs:
             - **Universal**: Nova Link_x.x.x_universal.dmg
           releaseDraft: false
           prerelease: false
-          args: "--bundles msi,app"
+          args: "--bundles msi"
 
   build-macos:
     if: github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' || inputs.platform == 'macos') || github.event_name == 'push'
